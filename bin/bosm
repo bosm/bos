@@ -1,2 +1,174 @@
-#!/bin/sh
-echo "hey it works!"
+#!/usr/bin/env python
+#
+# Copyright (C) 2012        SWOAG Technology
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License version 2 as
+# published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+import os, sys, shutil
+if not 'PYTHONPATH' in os.environ: os.environ['PYTHONPATH'] = ''
+else: os.environ['PYTHONPATH'] += ':'
+os.environ['PYTHONPATH'] += os.path.dirname(os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+import argparse
+from subprocess import call
+
+from bomb.main import Bos
+from bomb.log import Blog
+
+def bosm():
+    parser = argparse.ArgumentParser(usage = """%(prog)s [options] [target]
+
+    %(prog)s             : configure and build entire system
+    %(prog)s clean       : clean everything
+    %(prog)s info        : print system info, list of packages etc
+    %(prog)s <pkg>       : make and install <pkg> package
+    %(prog)s <pkg>-clean : clean <pkg> package
+    %(prog)s <pkg>-info  : print <pkg> package info
+""")
+
+    parser.add_argument('--version', action ='version', version = Bos.version)
+
+    parser.add_argument('-v', '--verbose', action = 'store_true',
+                        help = 'verbose on console')
+
+    parser.add_argument('-n', '--dryrun', action = 'store_true',
+                        help = 'go through the motions without actual execution')
+
+    parser.add_argument('-j', '--jobs', nargs='?', type = int,
+                        help = 'the number of jobs to run simultaneously')
+
+    parser.add_argument('-d', '--debug', action = 'store_true',
+                        help = 'enable debugging log')
+
+    parser.add_argument('-t', '--trace', action = 'store_true',
+                        help = 'enable debug tracing')
+
+    parser.add_argument('target', nargs='*', default = ['all'],
+                        help = 'build target, entire system if not present')
+
+    args = parser.parse_args()
+
+    ## cleanup all existing logs
+    if 'clean' in args.target:
+        try: shutil.rmtree(Bos.logdir)
+        except: pass
+
+    ## BOS internal environments required by logging system.
+    os.environ['_BOS_DEBUG_'] = 'yes' if args.debug == True else 'no'
+    os.environ['_BOS_TRACE_'] = 'yes' if args.trace == True else 'no'
+    os.environ['_BOS_VERBOSE_'] = 'yes' if args.verbose == True else 'no'
+
+    ### bootstrap build system
+    Bos.setup()
+    Blog.debug("entering to build system, topdir: %s" % Bos.topdir)
+
+    if _bootstrapcheck():
+        Blog.debug("bootstrap required.")
+        Bos.touch(os.path.join(Bos.cachedir, '.rebootstrap'))
+        Bos.touch(os.path.join(Bos.cachedir, '.rebuild'))
+
+    ret = 0
+    if not 'bootstrap' in args.target:
+        Blog.debug("checking to bootstrap ...")
+        ret = call(['make', '-C', Bos.cachedir,
+                    '-f', Bos.topdir + 'bos/mk/bootstrap.mk',
+                    '--no-print-directory'])
+        if 0 != ret: Blog.fatal('unable to bootstrap')
+
+    ## from this point on, build system is bootstraped and ready:
+    ## - all envorinments are in place and ready to consume build target
+    if 'info' in args.target: _print_info()
+
+    if 0 == ret:
+        Blog.debug("top-level make ...")
+        for target in args.target:
+            if target[-5:] == '-info': _print_pkg_info(target[:-5])
+
+            call(['make', '-C', Bos.cachedir,
+                  '-f', Bos.topdir + 'bos/mk/main.mk',
+                  '-j' + str(args.jobs) if args.jobs else '-j',
+                  '--no-print-directory', target])
+
+    print ''
+    print 'build summary at: {0}'.format(Blog.name())
+
+
+def _bootstrapcheck():
+
+        if not os.path.exists(os.path.join(Bos.cachedir, '.bootstrap')):
+            return True
+        if open(os.path.join(Bos.cachedir, '.bootstrap'),'r').read() != Bos.topdir:
+            return True
+        return False
+
+
+def _print_info():
+
+    print '\nall buidable packages:\n%s' % ('-' * 80)
+
+    pkgs = []
+    try: pkgs.extend(open(os.path.join(Bos.cachedir, 'toolchain-packages'))
+                     .read().strip().split('\n'))
+    except: pass
+
+    try: pkgs.extend(open(os.path.join(Bos.cachedir, 'packages'))
+                     .read().strip().split('\n'))
+    except: pass
+
+    pkgs.sort()
+    if len(pkgs) % 2 != 0: pkgs.append(' ')
+    split = len(pkgs) / 2
+    l1 = pkgs[0:split]
+    l2 = pkgs[split:]
+    for key, value in zip(l1, l2): print '%-40s %s' % (key, value)
+
+    print
+    sys.exit(0)
+
+
+def _print_pkg_info(name):
+
+    from bomb.package import BosPackage
+
+    try: pkg = BosPackage.open(name)
+    except: pass
+
+    print '-' * 80
+    print 'NAME:\t%s' % pkg.name
+    print 'DESCRIPTION: %s' % '\n\t'.join(pkg.description.split('\n'))
+    print '-' * 80
+    print 'MK:\t%s' % pkg.mk
+    print 'SRC:\t%s' % pkg.src
+    if pkg.require: print 'DEPEND:\t%s' % ' '.join(pkg.require)
+    print '-' * 80
+
+    if pkg.info:
+        print 'CONTENTS:'
+        for k, v in pkg.info.items():
+            print '\n%s:\n\t%s' % (k, '\n\t'.join(v))
+
+    print
+    sys.exit(0)
+
+
+if __name__ == '__main__':
+    try:
+        ret = bosm()
+    except Exception:
+        ret = 1
+        if os.environ['_BOS_TRACE_'] == 'yes':
+            import traceback
+            traceback.print_exc(5)
+    sys.exit(ret)

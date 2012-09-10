@@ -1,0 +1,110 @@
+#!/usr/bin/env python
+#
+# Copyright (C) 2012        SWOAG Technology
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License version 2 as
+# published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+import os, sys
+from ConfigParser import ConfigParser
+
+from bomb.main import Bos
+from bomb.log import Blog
+from bomb.package import BosPackage
+
+distrodir = os.path.join(Bos.topdir, 'distro')
+configdir = os.path.join(distrodir, 'config')
+
+config = ConfigParser()
+config.read([os.path.join(configdir, 'packages'),
+             os.path.join(configdir, 'arch')])
+
+def bosbootstrap():
+
+    Blog.info("bootstraping ...")
+    _pkg_list_gen()
+
+    Bos.set_env({'BOS_TARGET':'i686-pc-linux-gnu'}, native = True)
+    Bos.save_env()
+
+
+def _pkg_list_gen():
+
+    Blog.debug("generating package list")
+    bdeps = open(os.path.join(Bos.cachedir, 'bdeps.mk'), "w")
+    bdeps.write('T:=%s\n\n' % Bos.topdir)
+    bdeps.write('.bootstrap: ')
+
+    tlen = len(Bos.topdir)
+    with open(os.path.join(Bos.cachedir, 'deps.mk'), "w") as deps:
+        deps.write('T:=%s\n' % Bos.topdir)
+        deps.write('D:=%sstates/\n\n' % Bos.cachedir)
+
+        pkgs = _pkg_set_gen(deps, 'toolchain-packages')
+        _pkg_record(pkgs, 'toolchain-packages')
+
+        pkgs2 = _pkg_set_gen(deps, 'packages')
+        _pkg_record(pkgs2, 'packages')
+
+        pkgs = pkgs.union(pkgs2)
+        for pn in pkgs:
+            pkg = BosPackage.open(pn)
+            deps.write('$(D)%s.p: $(T)%s\n' % (pkg.name, pkg.mk[tlen:]))
+            bdeps.write(' \\\n$(T)%s' % pkg.mk[tlen:])
+
+def _pkg_record(pkgs, name):
+    if pkgs:
+        with open(os.path.join(Bos.cachedir, name), "w") as f:
+            for pn in pkgs:  f.write(pn + '\n')
+
+def _pkg_set_gen(deps, key):
+
+    pkg_set = set()
+    try: pkgs = dict(config.items('bos-packages'))[key].split('\n')
+    except: return pkg_set
+
+    for pn in pkgs:
+        if not pn.strip(): continue
+        Blog.debug("adding package: %s" % pn)
+        pkg_set.add(pn)
+
+        pkg = BosPackage.open(pn)
+        if pkg.require: _dep_gen(deps, pkg_set, pkg)
+    return pkg_set
+
+
+def _dep_gen(deps_f, pkg_set, pkg):
+
+    Blog.debug("generating dependency for %s" % pkg.name)
+    deps_f.write('$(D)%s.f:' % pkg.name)
+
+    for dep in pkg.require:
+            deps_f.write(' $(D)%s.d' % dep)
+            pkg_set.add(dep)
+    deps_f.write('\n')
+
+    for dep in pkg.require:
+        Blog.debug("generating dependency for %s" % dep)
+        dep_pkg = BosPackage.open(dep)
+        if dep_pkg.require: _dep_gen(deps_f, pkg_set, dep_pkg)
+
+
+if __name__ == '__main__':
+    try:
+        ret = bosbootstrap()
+    except Exception:
+        ret = 1
+        if os.environ['_BOS_TRACE_'] == 'yes':
+            import traceback
+            traceback.print_exc(5)
+    sys.exit(ret)

@@ -1,0 +1,73 @@
+#!/usr/bin/env python
+#
+# Copyright (C) 2012        SWOAG Technology
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License version 2 as
+# published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+import os, sys, glob, shutil
+
+from bomb.main import Bos
+from bomb.log import Blog
+from bomb.package import BosPackage
+from bomb.util import bos_run
+from bomb.lockfile import BosLockFile
+
+def bosclean():
+
+    name = sys.argv[1]
+    pkg = BosPackage.open(name)
+
+    ret = 0
+    if pkg.clean:
+        Blog.info("cleaning %s ..." % name)
+        Bos.get_env(pkg.native)
+        ret,logname = bos_run(['make', '-C', pkg.src,
+                               '-f', pkg.mk,
+                               '--no-print-directory',
+                               'clean'])
+        if 0 != ret:
+            Blog.warn('%s unable to clean' % name)
+
+    if pkg.gitdir:
+        with BosLockFile(os.path.join(pkg.gitdir, '.bos.lock')) as lock:
+            bos_run(['git', '--git-dir=%s' % pkg.gitdir,
+                     'stash'])
+
+            bos_run(['git', '--git-dir=%s' % pkg.gitdir,
+                     'checkout', '%s' % pkg.src])
+
+            bos_run(['git', '--git-dir=%s' % pkg.gitdir,
+                     'stash', 'pop'])
+
+    pkg.uninstall()
+
+    try:
+        for fn in glob.glob('%s.*' % (Bos.statesdir + name)): os.unlink(fn)
+    except OSError as e:
+        Blog.warn(e.strerror + ': ' + e.filename)
+
+    try:
+        shutil.rmtree(os.path.dirname(pkg.logdir))
+    except: pass
+
+
+if __name__ == '__main__':
+    try:
+        ret = bosclean()
+    except Exception:
+        ret = 1
+        if os.environ['_BOS_TRACE_'] == 'yes':
+            import traceback
+            traceback.print_exc(5)
+    sys.exit(ret)

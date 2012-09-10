@@ -1,0 +1,58 @@
+#!/usr/bin/env python
+#
+# Copyright (C) 2012        SWOAG Technology
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License version 2 as
+# published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+import os, sys
+import argparse
+from bomb.log import BosLog
+
+def boslog():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('-f', '--fname', action = 'store',
+                        help = 'log file name')
+
+    parser.add_argument('-d', '--debug', action = 'store_true',
+                        help = 'enable debugging log')
+
+    parser.add_argument('msg', nargs='?',
+                        help = 'message or standard input if not present')
+
+    args = parser.parse_args()
+
+    is_stdin = '-' == args.msg or not args.msg
+    log = BosLog(args.fname, sync = True,
+                 quiet = is_stdin and os.environ['_BOS_VERBOSE_'] == 'no',
+                 timestamp = not is_stdin)
+
+    if is_stdin:
+        if args.debug : log.debug(''.join(sys.stdin.readlines()))
+        else          : log.info(''.join(sys.stdin.readlines()))
+    else:
+        if args.debug : log.debug(args.msg)
+        else          : log.info(args.msg)
+
+    return 0
+
+if __name__ == '__main__':
+    try:
+        ret = boslog()
+    except Exception:
+        ret = 1
+        if os.environ['_BOS_TRACE_'] == 'yes':
+            import traceback
+            traceback.print_exc(5)
+    sys.exit(ret)

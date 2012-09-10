@@ -1,0 +1,213 @@
+#!/usr/bin/env python
+#
+# Copyright (C) 2012        SWOAG Technology
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License version 2 as
+# published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+import os, sys, shutil
+from subprocess import call
+import glob
+
+from bomb.main import Bos
+from bomb.log import Blog
+from bomb.package import BosPackage
+from bomb.util import bos_run
+
+class BosInstallContext(object):
+
+    def __init__(self, name, pkg):
+
+        self.pkg = pkg
+
+        if pkg.native:
+            self.name = name + '-native'
+            self.destdir = Bos.nativedir
+            self.indexdir = Bos.nativeindexdir
+        else:
+            self.name = name
+            self.destdir = Bos.targetdir
+            self.indexdir = Bos.targetindexdir
+
+        self.baselen = len(pkg.stagingdir)
+        self.contents = []
+
+
+def bosinstall():
+
+    name = sys.argv[1]
+    pkg = BosPackage.open(name)
+    pkg.uninstall()
+
+    ret = 0
+    if pkg.install:
+        Blog.info("installing %s ..." % name)
+
+        if not os.path.exists(pkg.stagingdir): os.makedirs(pkg.stagingdir)
+
+        ret,logname = bos_run(['make', '-C', pkg.src, '-f', pkg.mk,
+                               '--no-print-directory',
+                               'DESTDIR=%s' % pkg.stagingdir,
+                               'install'], pkg.logdir + '-install')
+
+        if 0 == ret: ret = _do_install(pkg)
+
+        if 0 != ret:
+            Blog.fatal('%s failed to install, see log at: %s' % (name, logname))
+
+        shutil.rmtree(pkg.stagingdir)
+
+    if 0 == ret: Bos.touch(Bos.statesdir + name + '.d')
+
+
+def _do_install(pkg):
+    """
+    examine contents in staging area and populate contents to each package
+
+    all package specified contents must exist, unless optional
+    all installed contents must associate with package
+    """
+
+    for kn in pkg.files:
+        if kn == 'files':
+            pn = pkg.basename
+        else:
+            pn = pkg.basename + kn[5:]
+
+        Blog.debug('processing package: %s' % pn)
+
+        ctx = BosInstallContext(pn, pkg)
+        try:
+            for itm in pkg.files[kn].split('\n'):
+                if '' == itm.strip(): continue
+
+                ownership, pattern, optional = _parse_install_item(itm)
+
+                Blog.debug('processing pattern: %s' % pattern)
+                flist = glob.glob(os.path.join(pkg.stagingdir, pattern[1:]))
+                if (not flist) and (not optional):
+                    Blog.fatal('<%s> unable to find: %s' % (pkg.name,  pattern))
+                for ff in flist: _install_files(ff, ctx)
+
+            Blog.debug('<%s> contents:\n%s' % (ctx.name, '\n'.join(ctx.contents)))
+            for ff in ctx.contents:
+                path = os.path.join(ctx.indexdir, ff[1:])
+                if not os.path.exists(os.path.dirname(path)):
+                    os.makedirs(os.path.dirname(path))
+                #with open(path, 'w') as f: f.write(ctx.name)
+                os.symlink(ctx.name, path)
+        except:
+            pkg.put_info({ctx.name:ctx.contents})
+            pkg.uninstall()
+            raise
+
+        Blog.debug('%s writing package info' % ctx.name)
+        pkg.put_info({ctx.name:ctx.contents})
+
+    ## post process: walk the stagingdir to make sure there's no files left
+    try:
+        for r, d, f in os.walk(pkg.stagingdir):
+            if f: Blog.fatal('installed but unpackaged contents found: %s\n%s'
+                             % (pkg.name, _list_dir(pkg.stagingdir)))
+    except:
+        pkg.uninstall()
+        raise
+
+    pkg.flush()
+
+    return 0
+
+
+def _install_files(src, context):
+
+    if os.path.isdir(src):
+        for ff in os.listdir(src):
+            Blog.debug('installing: %s' % ff)
+            _install_files(os.path.join(src, ff), context)
+    else:
+        rel_src = src[context.baselen:]
+        if rel_src[0] == '/': rel_src = rel_src[1:]
+
+        path = os.path.join(context.destdir, os.path.dirname(rel_src))
+        if not os.path.exists(path): os.makedirs(path)
+
+        Blog.debug('installing from: %s to %s' % (src, path))
+        try:
+            shutil.move(src, path + '/')
+        except shutil.Error:
+            Blog.fatal('package %s conflicts with: %s\n%s'
+                       % (context.name,
+                          _who_has(rel_src, context.pkg.native),
+                          rel_src))
+
+        context.contents.append('/' + rel_src)
+
+
+def _parse_install_item(item):
+
+    ownership = None
+    optional = False
+
+    patterns = item.split()
+
+    num = len(patterns)
+    if num == 1: pattern = patterns[0]
+
+    elif num == 2:
+        if patterns[0][0] == '/':
+            pattern = patterns[0]
+            optional = True
+        else:
+            ownership = patterns[0]
+            pattern = patterns[1]
+
+    elif num == 3:
+        ownership = patterns[0]
+        pattern = patterns[1]
+        optional = True
+
+    return (ownership, pattern, optional)
+
+
+def _list_dir(dirname):
+
+    dirlen = len(dirname)
+    files = []
+    for r, d, f in os.walk(dirname):
+        for fn in f:
+            base_r = r[dirlen:]
+            files.append(os.path.join(base_r if base_r else '/', fn))
+    return '\n'.join(files)
+
+
+def _who_has(content, native = False):
+
+    path = os.path.join(Bos.nativeindexdir if native else Bos.targetindexdir, content)
+    try:
+        #owner = open(path).read()
+        owner = os.readlink(path)
+    except:
+        owner = None
+
+    return owner
+
+
+if __name__ == '__main__':
+    try:
+        ret = bosinstall()
+    except Exception:
+        ret = 1
+        if os.environ['_BOS_TRACE_'] == 'yes':
+            import traceback
+            traceback.print_exc(5)
+    sys.exit(ret)

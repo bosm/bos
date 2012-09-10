@@ -1,0 +1,50 @@
+#!/usr/bin/env python
+#
+# Copyright (C) 2012        SWOAG Technology
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License version 2 as
+# published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+import os, sys
+
+from bomb.main import Bos
+from bomb.log import Blog
+from bomb.package import BosPackage
+from bomb.util import bos_run
+
+def boscompile():
+    name = sys.argv[1]
+    pkg = BosPackage.open(name)
+
+    ret = 0
+    if pkg.compile:
+        Blog.info("compiling %s ..." % name)
+        ret,logname = bos_run(['make', '-C', pkg.src,
+                               '-f', pkg.mk,
+                               '--no-print-directory',
+                               'compile'], pkg.logdir + '-compile')
+
+        if 0 != ret:
+            Blog.fatal('%s failed to compile, see log at: %s' % (name, logname))
+
+    if 0 == ret: Bos.touch(Bos.statesdir + name + '.b')
+
+if __name__ == '__main__':
+    try:
+        ret = boscompile()
+    except Exception:
+        ret = 1
+        if os.environ['_BOS_TRACE_'] == 'yes':
+            import traceback
+            traceback.print_exc(5)
+    sys.exit(ret)
