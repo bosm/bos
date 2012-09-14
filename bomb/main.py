@@ -38,6 +38,10 @@ class Bos(object):
     logdir = builddir + 'logs/'
     distrodir = topdir + 'distro/'
 
+    ## big global lock to protect writing to/removing from output area
+    nativedirlock = cachedir + 'native.lock'
+    targetdirlock = cachedir + 'target.lock'
+
     native_env = {}
     target_env = {}
 

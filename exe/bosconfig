@@ -28,7 +28,7 @@ def bosconfig():
     pkg = BosPackage.open(name)
 
     ret = 0
-    if pkg.config:
+    if pkg.config_yes:
         Blog.info("configuring %s ..." % name)
         Bos.get_env(pkg.native)
         ret,logname = bos_run(['make', '-C', pkg.src,

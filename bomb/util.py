@@ -18,7 +18,6 @@ import subprocess, fcntl, select
 
 from bomb.main import Bos
 from bomb.log import BosLog, Blog
-from bomb.lockfile import BosLockFile
 
 def bos_run(args, logname = None):
     """
@@ -32,11 +31,12 @@ def bos_run(args, logname = None):
                      quiet = os.environ['_BOS_VERBOSE_'] == 'no',
                      timestamp = False)
 
-    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT)
 
-    fcntl.fcntl(proc.stdout.fileno(),
-                fcntl.F_SETFL,
-                fcntl.fcntl(proc.stdout.fileno(), fcntl.F_GETFL) | os.O_NONBLOCK)
+    fcntl.fcntl(proc.stdout.fileno(), fcntl.F_SETFL,
+                fcntl.fcntl(proc.stdout.fileno(), fcntl.F_GETFL) |
+                os.O_NONBLOCK)
 
     chunk = ''
     while proc.poll() == None:
@@ -59,17 +59,17 @@ def bos_rm_empty_path(path, base):
     path: directory relative to base directory
     base: base directory
     """
-    with BosLockFile(os.path.join(base, '.lock')) as lock:
-        base = os.path.realpath(base)
-        if path[0] == '/': path = path[1:]
 
-        path = os.path.join(base, path)
-        Blog.debug('path: %s base: %s' % (path, base))
+    base = os.path.realpath(base)
+    if path[0] == '/': path = path[1:]
 
-        while os.path.realpath(path) != base and path != '/':
-            if _rm_empty_dirs(path):
-                path = os.path.dirname(path)
-            else: break
+    path = os.path.join(base, path)
+    Blog.debug('path: %s base: %s' % (path, base))
+
+    while os.path.realpath(path) != base and path != '/':
+        if _rm_empty_dirs(path):
+            path = os.path.dirname(path)
+        else: break
 
 
 def _rm_empty_dirs(root):

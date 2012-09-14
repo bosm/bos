@@ -28,7 +28,7 @@ def bosprepare():
     pkg = BosPackage.open(name)
 
     ret = 0
-    if pkg.prepare:
+    if pkg.prepare_yes:
         Blog.info("preparing %s ..." % name)
         Bos.get_env(pkg.native)
         ret,logname = bos_run(['make', '-C', pkg.src,

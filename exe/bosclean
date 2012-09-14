@@ -29,7 +29,7 @@ def bosclean():
     pkg = BosPackage.open(name)
 
     ret = 0
-    if pkg.clean:
+    if pkg.clean_yes:
         Blog.info("cleaning %s ..." % name)
         Bos.get_env(pkg.native)
         ret,logname = bos_run(['make', '-C', pkg.src,

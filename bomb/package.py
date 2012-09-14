@@ -13,13 +13,33 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-import os, sys
+import os, sys, glob, shutil
 import shelve
 from ConfigParser import ConfigParser, NoOptionError
 
 from bomb.main import Bos
 from bomb.log import Blog
 from bomb.util import bos_run, bos_rm_empty_path
+from bomb.lockfile import BosLockFile
+
+class BosInstallContext(object):
+
+    def __init__(self, name, pkg):
+
+        self.pkg = pkg
+
+        if pkg.native:
+            self.name = name + '-native'
+            self.destdir = Bos.nativedir
+            self.indexdir = Bos.nativeindexdir
+        else:
+            self.name = name
+            self.destdir = Bos.targetdir
+            self.indexdir = Bos.targetindexdir
+
+        self.baselen = len(pkg.stagingdir)
+        self.contents = []
+
 
 class BosPackage(object):
 
@@ -104,29 +124,100 @@ class BosPackage(object):
         db['obj'] = self
         db.close()
 
-    def uninstall(self):
+    def install(self):
+        """
+        install package from staging area to output area and populate DB
 
-        for pn in self.info:
-            for fn in self.info[pn]:
-                if self.native:
-                    os.unlink(os.path.join(Bos.nativedir, fn[1:]))
-                    os.unlink(os.path.join(Bos.nativeindexdir, fn[1:]))
-                else:
-                    os.unlink(os.path.join(Bos.targetdir, fn[1:]))
-                    os.unlink(os.path.join(Bos.targetindexdir, fn[1:]))
+        examine contents in staging area to make sure that,
+        - all package specified contents must exist, unless optional
+        - all installed contents must associate with given package
 
+        return: 0 if successful, error code otherwise
+        """
+
+        ## walk through package and sub-package definitions if any
         for kn in self.files:
-            for itm in self.files[kn].split('\n'):
-                if not itm.strip(): continue
-                dn = os.path.dirname(itm)
-                Blog.debug('package %s removing item: %s' % (self.name, dn))
-                if dn and  '/' != dn:
+            if kn == 'files':
+                pn = self.basename
+            else:
+                pn = self.basename + kn[5:]
+
+                Blog.debug('processing package: %s' % pn)
+
+            ctx = BosInstallContext(pn, self)
+            try:
+                for itm in self.files[kn].split('\n'):
+                    if '' == itm.strip(): continue
+
+                    ownership, pattern, optional = _parse_install_item(itm)
+
+                    Blog.debug('processing pattern: %s' % pattern)
+                    flist = glob.glob(os.path.join(self.stagingdir, pattern[1:]))
+                    if (not flist) and (not optional):
+                        Blog.fatal('<%s> unable to find: %s' % (pkg.name,  pattern))
+                    for ff in flist: _install_files(ff, ctx)
+
+                Blog.debug('<%s> contents:\n%s' % (ctx.name, '\n'.join(ctx.contents)))
+                for ff in ctx.contents:
+                    path = os.path.join(ctx.indexdir, ff[1:])
+                    if not os.path.exists(os.path.dirname(path)):
+                        os.makedirs(os.path.dirname(path))
+                    #with open(path, 'w') as f: f.write(ctx.name)
+                    os.symlink(ctx.name, path)
+            except:
+                self.put_info({ctx.name:ctx.contents})
+                self.uninstall()
+                raise
+
+            Blog.debug('%s writing package info' % ctx.name)
+            self.put_info({ctx.name:ctx.contents})
+
+        ## post process: walk the stagingdir to make sure there's no files left
+        try:
+            for r, d, f in os.walk(self.stagingdir):
+                if f: Blog.fatal('installed but unpackaged contents found: %s\n%s'
+                                 % (self.name, _list_dir(self.stagingdir)))
+        except:
+            self.uninstall()
+            raise
+
+        self.flush()
+
+        return 0
+
+    def uninstall(self):
+        """
+        uninstall package both from output and index DB area
+
+        uninstall also checks to remove any path that becomes empty
+        due to this package's uninstallation.
+        """
+
+        ## must acquire the global lock
+        lockdir = Bos.nativedirlock if self.native else Bos.targetdirlock
+
+        with BosLockFile(lockdir) as lock:
+            for pn in self.info:
+                for fn in self.info[pn]:
                     if self.native:
-                        bos_rm_empty_path(dn, Bos.nativedir)
-                        bos_rm_empty_path(dn, Bos.nativeindexdir)
+                        os.unlink(os.path.join(Bos.nativedir, fn[1:]))
+                        os.unlink(os.path.join(Bos.nativeindexdir, fn[1:]))
                     else:
-                        bos_rm_empty_path(dn, Bos.targetdir)
-                        bos_rm_empty_path(dn, Bos.targetindexdir)
+                        os.unlink(os.path.join(Bos.targetdir, fn[1:]))
+                        os.unlink(os.path.join(Bos.targetindexdir, fn[1:]))
+
+            for kn in self.files:
+                for itm in self.files[kn].split('\n'):
+                    if not itm.strip(): continue
+                    dn = os.path.dirname(itm)
+                    Blog.debug('package %s removing item: %s' % (self.name, dn))
+                    if dn and  '/' != dn:
+                        if self.native:
+                            bos_rm_empty_path(dn, Bos.nativedir)
+                            bos_rm_empty_path(dn, Bos.nativeindexdir)
+                        else:
+                            bos_rm_empty_path(dn, Bos.targetdir)
+                            bos_rm_empty_path(dn, Bos.targetindexdir)
 
         self.info = {}
         self.flush()
@@ -177,22 +268,27 @@ class BosPackage(object):
 
         tmpmk = self.mk + '.tmp'
 
-        self.prepare = False
-        self.config = False
-        self.compile = False
-        self.install = False
-        self.clean = False
+        self.prepare_yes = False
+        self.config_yes = False
+        self.compile_yes = False
+        self.install_yes = False
+        self.clean_yes = False
 
         with open(tmpmk, "w") as f:
             f.write('[BOSMK]\n')
             for line in open(self.mk):
                 if line[:3] == '## ': f.write(line[3:])
                 else:
-                    if re.match('^[\w\s]*prepare[\w\s]*:', line): self.prepare = True
-                    if re.match('^[\w\s]*config[\w\s]*:', line): self.config = True
-                    if re.match('^[\w\s]*compile[\w\s]*:', line): self.compile = True
-                    if re.match('^[\w\s]*install[\w\s]*:', line): self.install = True
-                    if re.match('^[\w\s]*clean[\w\s]*:', line): self.clean = True
+                    if re.match('^[\w\s]*prepare[\w\s]*:', line):
+                        self.prepare_yes = True
+                    if re.match('^[\w\s]*config[\w\s]*:', line):
+                        self.config_yes = True
+                    if re.match('^[\w\s]*compile[\w\s]*:', line):
+                        self.compile_yes = True
+                    if re.match('^[\w\s]*install[\w\s]*:', line):
+                        self.install_yes = True
+                    if re.match('^[\w\s]*clean[\w\s]*:', line):
+                        self.clean_yes = True
 
         return tmpmk
 
@@ -201,3 +297,80 @@ def _get_shelf_name(name):
     """return shelf path for package with given name."""
 
     return os.path.join(Bos.shelvedir, name)
+
+def _install_files(src, context):
+
+    if os.path.isdir(src):
+        for ff in os.listdir(src):
+            Blog.debug('installing: %s' % ff)
+            _install_files(os.path.join(src, ff), context)
+    else:
+        rel_src = src[context.baselen:]
+        if rel_src[0] == '/': rel_src = rel_src[1:]
+
+        ## actual install must acquire the global lock
+        lockdir = Bos.nativedirlock if context.pkg.native else Bos.targetdirlock
+        with BosLockFile(lockdir) as lock:
+
+            path = os.path.join(context.destdir, os.path.dirname(rel_src))
+            if not os.path.exists(path): os.makedirs(path)
+
+            Blog.debug('installing from: %s to %s' % (src, path))
+            try:
+                shutil.move(src, path + '/')
+            except shutil.Error:
+                Blog.fatal('package %s conflicts with: %s\n%s'
+                           % (context.name,
+                              _who_has(rel_src, context.pkg.native),
+                              rel_src))
+
+        context.contents.append('/' + rel_src)
+
+
+def _parse_install_item(item):
+
+    ownership = None
+    optional = False
+
+    patterns = item.split()
+
+    num = len(patterns)
+    if num == 1: pattern = patterns[0]
+
+    elif num == 2:
+        if patterns[0][0] == '/':
+            pattern = patterns[0]
+            optional = True
+        else:
+            ownership = patterns[0]
+            pattern = patterns[1]
+
+    elif num == 3:
+        ownership = patterns[0]
+        pattern = patterns[1]
+        optional = True
+
+    return (ownership, pattern, optional)
+
+
+def _list_dir(dirname):
+
+    dirlen = len(dirname)
+    files = []
+    for r, d, f in os.walk(dirname):
+        for fn in f:
+            base_r = r[dirlen:]
+            files.append(os.path.join(base_r if base_r else '/', fn))
+    return '\n'.join(files)
+
+
+def _who_has(content, native = False):
+
+    path = os.path.join(Bos.nativeindexdir if native else Bos.targetindexdir, content)
+    try:
+        #owner = open(path).read()
+        owner = os.readlink(path)
+    except:
+        owner = None
+
+    return owner
