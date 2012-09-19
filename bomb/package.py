@@ -15,7 +15,7 @@
 
 import os, sys, glob, shutil
 import shelve
-from ConfigParser import ConfigParser, NoOptionError
+from ConfigParser import ConfigParser, NoOptionError, ParsingError
 
 from bomb.main import Bos
 from bomb.log import Blog
@@ -59,7 +59,12 @@ class BosPackage(object):
 
         config = ConfigParser()
         tmp_mk = self._gen_tmp_mk()
-        config.read(tmp_mk)
+        try:
+            config.read(tmp_mk)
+        except ParsingError as e:
+            Blog.error(e.message)
+            Blog.fatal("failed to parse .mk:  %s <%s>" % (name, self.mk))
+
         os.remove(tmp_mk)
 
         ## package description is required
@@ -70,6 +75,8 @@ class BosPackage(object):
 
         ## everything else if optional
         self.require = []
+        self.patch = []
+        self.patched = None
         self.src = None
         self.files = {}
         for fld in dict(config.items('BOSMK')):
@@ -85,13 +92,18 @@ class BosPackage(object):
                     self.require.append(dep)
 
             elif 'source' == fld:
-                self.src = os.path.join(
-                    Bos.topdir, dict(config.items('BOSMK'))['source'])
+                sources = dict(config.items('BOSMK'))[
+                    'source'].replace('\n', ' ').split(' ')
+                for s in sources:
+                    if os.path.splitext(s)[1] == '.patch': self.patch.append(s)
+
+                self.src = os.path.join(Bos.topdir, sources[0])
 
             elif fld[:5] == 'files':
                 self.files.update({fld: dict(config.items('BOSMK'))[fld]})
 
         ## package misc
+        if self.patch: self.patched = os.path.join(self.src, '.bos-patch-applied')
         self.mtime = os.path.getmtime(self.mk)
         self.stagingdir = os.path.join(Bos.cachedir, name)
         self.logdir = os.path.join(Bos.logdir, self.basename,
@@ -154,7 +166,7 @@ class BosPackage(object):
                     Blog.debug('processing pattern: %s' % pattern)
                     flist = glob.glob(os.path.join(self.stagingdir, pattern[1:]))
                     if (not flist) and (not optional):
-                        Blog.fatal('<%s> unable to find: %s' % (pkg.name,  pattern))
+                        Blog.fatal('<%s> unable to find: %s' % (self.name,  pattern))
                     for ff in flist: _install_files(ff, ctx)
 
                 Blog.debug('<%s> contents:\n%s' % (ctx.name, '\n'.join(ctx.contents)))
@@ -197,8 +209,10 @@ class BosPackage(object):
         lockdir = Bos.nativedirlock if self.native else Bos.targetdirlock
 
         with BosLockFile(lockdir) as lock:
+            ## clean up output and index area based on cached package info
             for pn in self.info:
                 for fn in self.info[pn]:
+                    Blog.debug('%s removing %s' % (self.name, fn[1:]))
                     if self.native:
                         os.unlink(os.path.join(Bos.nativedir, fn[1:]))
                         os.unlink(os.path.join(Bos.nativeindexdir, fn[1:]))
@@ -206,6 +220,7 @@ class BosPackage(object):
                         os.unlink(os.path.join(Bos.targetdir, fn[1:]))
                         os.unlink(os.path.join(Bos.targetindexdir, fn[1:]))
 
+            ## check output area to remove left-over empty paths
             for kn in self.files:
                 for itm in self.files[kn].split('\n'):
                     if not itm.strip(): continue
@@ -255,11 +270,13 @@ class BosPackage(object):
         for r,d,f in os.walk(os.path.join(root, 'bm')):
             for fn in f:
                 if fn.endswith('.mk'):
-                    path = r
+                    Blog.debug('mk found as: %s at %s' % (fn, r))
                     if fn == '%s.mk' % self.name:
                         return os.path.join(path, fn)
                     if True == self.native:
-                        if fn == '%s.mk' % self.basename: mk = fn
+                        if fn == '%s.mk' % self.basename:
+                            mk = fn
+                            path = r
 
         return None if not mk else os.path.join(path, mk)
 
@@ -319,10 +336,13 @@ def _install_files(src, context):
             try:
                 shutil.move(src, path + '/')
             except shutil.Error:
-                Blog.fatal('package %s conflicts with: %s\n%s'
-                           % (context.name,
-                              _who_has(rel_src, context.pkg.native),
-                              rel_src))
+                owner = _who_has(rel_src, context.pkg.native)
+                if owner == context.name:
+                    os.unlink(path, os.path.basename(src))
+                    shutil.move(src, path + '/')
+                else:
+                    Blog.fatal('package %s conflicts with: %s\n%s'
+                               % (context.name, owner, rel_src))
 
         context.contents.append('/' + rel_src)
 

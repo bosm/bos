@@ -31,7 +31,7 @@ def bosinstall():
 
     ret = 0
     if pkg.install_yes:
-        Blog.info("installing %s ..." % name)
+        Blog.info("installing %s" % name)
 
         if not os.path.exists(pkg.stagingdir): os.makedirs(pkg.stagingdir)
 

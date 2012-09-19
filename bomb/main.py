@@ -57,6 +57,9 @@ class Bos(object):
         ## BOS common shell environments, accessible to package.mk
         os.environ['BOS_TOPDIR'] = cls.topdir
         os.environ['BOS_HOST'] = 'i686-pc-linux-gnu'
+        os.environ['LD_LIBRARY_PATH'] = cls.nativedir + 'usr/lib'
+        bin_path = cls.nativedir + 'usr/bin:' + cls.nativedir + 'bin:'
+        os.environ['PATH'] = bin_path + os.environ['PATH']
 
         ## BOS internal environments
         os.environ['_BOS_LOGDIR_'] = cls.logdir

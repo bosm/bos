@@ -28,7 +28,7 @@ def boscompile():
 
     ret = 0
     if pkg.compile_yes:
-        Blog.info("compiling %s ..." % name)
+        Blog.info("compiling %s" % name)
         ret,logname = bos_run(['make', '-C', pkg.src,
                                '-f', pkg.mk,
                                '--no-print-directory',

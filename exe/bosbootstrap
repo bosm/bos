@@ -35,6 +35,19 @@ def bosbootstrap():
     _pkg_list_gen()
 
     Bos.set_env({'BOS_TARGET':'i686-pc-linux-gnu'}, native = True)
+    Bos.set_env({'BOS_SYSROOT':Bos.nativedir}, True)
+    Bos.set_env({'PKG_CONFIG_PATH':Bos.nativedir + 'usr/lib/pkgconfig'}, True)
+    Bos.set_env({'PKG_CONFIG_SYSROOT_DIR':Bos.nativedir}, True)
+    Bos.set_env({'PKG_CONFIG_ALLOW_SYSTEM_LIBS':'1'}, True)
+    Bos.set_env({'PKG_CONFIG_ALLOW_SYSTEM_CFLAGS':'1'}, True)
+
+    Bos.set_env({'BOS_SYSROOT':Bos.targetdir})
+    Bos.set_env({'PKG_CONFIG_PATH':Bos.targetdir + 'usr/lib/pkgconfig'})
+    Bos.set_env({'PKG_CONFIG_LIBDIR':Bos.targetdir + 'usr/lib/pkgconfig'})
+    Bos.set_env({'PKG_CONFIG_SYSROOT_DIR':Bos.targetdir})
+    Bos.set_env({'PKG_CONFIG_ALLOW_SYSTEM_LIBS':'1'})
+    Bos.set_env({'PKG_CONFIG_ALLOW_SYSTEM_CFLAGS':'1'})
+
     Bos.save_env()
 
 
@@ -86,7 +99,7 @@ def _pkg_set_gen(deps, key):
 def _dep_gen(deps_f, pkg_set, pkg):
 
     Blog.debug("generating dependency for %s" % pkg.name)
-    deps_f.write('$(D)%s.f:' % pkg.name)
+    deps_f.write('%s $(D)%s.f:' % (pkg.name, pkg.name))
 
     for dep in pkg.require:
             deps_f.write(' $(D)%s.d' % dep)

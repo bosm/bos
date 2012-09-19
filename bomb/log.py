@@ -65,6 +65,11 @@ class Blog():
         return cls.log.warn(msg)
 
     @classmethod
+    def error(cls, msg):
+        if not cls.log: cls.log = BosLog(sync = True)
+        return cls.log.error(msg)
+
+    @classmethod
     def debug(cls, msg):
         if os.environ['_BOS_DEBUG_'] == 'yes':
             import inspect

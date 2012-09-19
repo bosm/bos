@@ -15,7 +15,7 @@ clean: $(addsuffix -clean,$(bos_all_packages))
 .PHONY: $(bos_all_packages)
 $(bos_packages): $(bos_toolchain_packages)
 
-$(bos_all_packages): %: $(addsuffix .d,$(addprefix $(bos_statedir),%))
+$(bos_all_packages):
 	@$(E)boslog -d "main.mk: building $@"
 	@$(E)bosprepare $@
 	@$(E)bosconfig $@
