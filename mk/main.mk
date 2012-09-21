@@ -17,6 +17,7 @@ $(bos_packages): $(bos_toolchain_packages)
 
 $(bos_all_packages):
 	@$(E)boslog -d "main.mk: building $@"
+	@$(E)bosclean $@
 	@$(E)bosprepare $@
 	@$(E)bosconfig $@
 	@$(E)boscompile $@
@@ -41,6 +42,10 @@ $(addsuffix -install,$(bos_all_packages)):
 $(addsuffix -clean,$(bos_all_packages)):
 	@$(E)boslog -d "main.mk: cleaning $(@F)."
 	@$(E)bosclean ${subst -clean,, $(@F)}
+
+$(addsuffix -purge,$(bos_all_packages)):
+	@$(E)boslog -d "main.mk: purging $(@F)."
+	@$(E)bospurge ${subst -purge,, $(@F)}
 
 .PHONY: bootstrap
 bootstrap:

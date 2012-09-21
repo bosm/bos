@@ -30,12 +30,18 @@ from bomb.log import Blog
 def bosm():
     parser = argparse.ArgumentParser(usage = """%(prog)s [options] [target]
 
-    %(prog)s             : configure and build entire system
-    %(prog)s clean       : clean everything
-    %(prog)s info        : print system info, list of packages etc
-    %(prog)s <pkg>       : make and install <pkg> package
-    %(prog)s <pkg>-clean : clean <pkg> package
-    %(prog)s <pkg>-info  : print <pkg> package info
+    %(prog)s                 : configure and build entire system
+    %(prog)s clean           : clean everything
+    %(prog)s info            : print system info, list of packages etc
+    %(prog)s <pkg>           : (re)build package, from <pkg>-clean to
+                                <pkg>-prepare, all the way to <pkg>-install
+    %(prog)s <pkg>-prepare   : do <pkg>-prepare
+    %(prog)s <pkg>-config    : do <pkg>-config
+    %(prog)s <pkg>-compile   : do <pkg>-compile
+    %(prog)s <pkg>-install   : do <pkg>-install
+    %(prog)s <pkg>-clean     : do <pkg>-clean, preserve manual changes
+    %(prog)s <pkg>-purge     : do <pkg>-clean, and throw away all changes
+    %(prog)s <pkg>-info      : print <pkg> package info
 """)
 
     parser.add_argument('--version', action ='version', version = Bos.version)
@@ -146,18 +152,19 @@ def _print_pkg_info(name):
     except: pass
 
     print '-' * 80
-    print 'NAME:\t%s' % pkg.name
-    print 'DESCRIPTION: %s' % '\n\t'.join(pkg.description.split('\n'))
+    print '%-12s: %s' % ('NAME', pkg.name)
+    print '%-12s: %s' % ('DESCRIPTION', '\n\t'.join(pkg.description.split('\n')))
     print '-' * 80
-    print 'MK:\t%s' % pkg.mk
-    print 'SRC:\t%s' % pkg.src
-    if pkg.require: print 'DEPEND:\t%s' % ' '.join(pkg.require)
+    print '%-12s: %s' % ('MK', pkg.mk)
+    print '%-12s: %s' % ('SRC', pkg.src)
+    if pkg.require: print '%-12s: %s' % ('DEPEND', ' '.join(pkg.require))
     print '-' * 80
 
     if pkg.info:
-        print 'CONTENTS:'
         for k, v in pkg.info.items():
-            print '\n%s:\n\t%s' % (k, '\n\t'.join(v))
+            print '\n%s:' % k
+            for i in v:
+                print '\t%s %s %10s %s' % (i[0], i[1], i[2], i[3])
 
     print
     sys.exit(0)
