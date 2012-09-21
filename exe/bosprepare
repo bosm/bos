@@ -27,19 +27,9 @@ def bosprepare():
     name = sys.argv[1]
     pkg = BosPackage.open(name)
 
+    pkg.apply_patch()
+
     ret = 0
-    if pkg.patch and not os.path.exists(pkg.patched):
-        for p in pkg.patch:
-            Blog.info("patching %s: %s" % (name, p))
-            ret,logname = bos_run(['patch', '-p1',
-                                   '-d', pkg.src,
-                                   '-i', os.path.join(os.path.dirname(pkg.mk), p)])
-        if 0 != ret:
-            Blog.fatal('%s unable to apply patch: %s' % (name, p))
-
-    if 0 == ret and pkg.patch:
-        Bos.touch(pkg.patched)
-
     if pkg.prepare_yes:
         Blog.info("preparing %s" % name)
         Bos.get_env(pkg.native)

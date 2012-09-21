@@ -92,3 +92,78 @@ def _rm_empty_dirs(root):
         return True
 
     else: return False
+
+#---------------------------------------------------------
+# Bits used in the mode field, values in octal.
+#---------------------------------------------------------
+S_IFLNK = 0120000        # symbolic link
+S_IFREG = 0100000        # regular file
+S_IFBLK = 0060000        # block device
+S_IFDIR = 0040000        # directory
+S_IFCHR = 0020000        # character device
+S_IFIFO = 0010000        # fifo
+
+TSUID   = 04000          # set UID on execution
+TSGID   = 02000          # set GID on execution
+TSVTX   = 01000          # reserved
+
+TUREAD  = 0400           # read by owner
+TUWRITE = 0200           # write by owner
+TUEXEC  = 0100           # execute/search by owner
+TGREAD  = 0040           # read by group
+TGWRITE = 0020           # write by group
+TGEXEC  = 0010           # execute/search by group
+TOREAD  = 0004           # read by other
+TOWRITE = 0002           # write by other
+TOEXEC  = 0001           # execute/search by other
+
+filemode_table = (
+    ((S_IFLNK,      "l"),
+     (S_IFREG,      "-"),
+     (S_IFBLK,      "b"),
+     (S_IFDIR,      "d"),
+     (S_IFCHR,      "c"),
+     (S_IFIFO,      "p")),
+
+    ((TUREAD,       "r"),),
+    ((TUWRITE,      "w"),),
+    ((TUEXEC|TSUID, "s"),
+     (TSUID,        "S"),
+     (TUEXEC,       "x")),
+
+    ((TGREAD,       "r"),),
+    ((TGWRITE,      "w"),),
+    ((TGEXEC|TSGID, "s"),
+     (TSGID,        "S"),
+     (TGEXEC,       "x")),
+
+    ((TOREAD,       "r"),),
+    ((TOWRITE,      "w"),),
+    ((TOEXEC|TSVTX, "t"),
+     (TSVTX,        "T"),
+     (TOEXEC,       "x"))
+)
+
+import os, sys, stat
+def _filemode(mode):
+    """
+    Convert a file's mode to a string of the form
+    -rwxrwxrwx.
+    """
+    perm = []
+    for table in filemode_table:
+        for bit, char in table:
+            if mode & bit == bit:
+                perm.append(char)
+                break
+        else:
+            perm.append("-")
+    return "".join(perm)
+
+def bos_fileinfo(path):
+    """return file mode and size. """
+
+    if not os.path.exists(path): return ('----------', 0)
+
+    st = os.lstat(path)
+    return (_filemode(st.st_mode), st.st_size)

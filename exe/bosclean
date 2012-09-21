@@ -26,11 +26,13 @@ from bomb.lockfile import BosLockFile
 def bosclean():
 
     name = sys.argv[1]
+    Blog.info("cleaning %s" % name)
+
     pkg = BosPackage.open(name)
 
     ret = 0
     if pkg.clean_yes:
-        Blog.info("cleaning %s" % name)
+        Blog.debug("cleaning %s" % name)
         Bos.get_env(pkg.native)
         ret,logname = bos_run(['make', '-C', pkg.src,
                                '-f', pkg.mk,
@@ -38,29 +40,15 @@ def bosclean():
                                'clean'])
         if 0 != ret:
             Blog.warn('%s unable to clean' % name)
-    """
+
+    pkg.revert_patch()
+
     if pkg.gitdir:
         with BosLockFile(os.path.join(pkg.gitdir, '.bos.lock')) as lock:
             bos_run(['git', '--git-dir=%s' % pkg.gitdir,
-                     'stash'])
-
-            bos_run(['git', '--git-dir=%s' % pkg.gitdir,
-                     'checkout', '%s' % pkg.src])
-
-            bos_run(['git', '--git-dir=%s' % pkg.gitdir,
-                     'stash', 'pop'])
-    """
-    if pkg.patch and os.path.exists(pkg.patched):
-        for p in reversed(pkg.patch):
-            ret,logname = bos_run(['patch', '-Rp1',
-                                   '-d', pkg.src,
-                                   '-i', os.path.join(os.path.dirname(pkg.mk), p)])
-            if 0 != ret:
-                Blog.fatal('%s unable to revert patch: %s' % (name, p))
-        os.unlink(pkg.patched)
+                     'clean', '-Xfd'])
 
     pkg.uninstall()
-
 
     try:
         for fn in glob.glob('%s.*' % (Bos.statesdir + name)): os.unlink(fn)

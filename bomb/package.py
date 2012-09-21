@@ -19,7 +19,7 @@ from ConfigParser import ConfigParser, NoOptionError, ParsingError
 
 from bomb.main import Bos
 from bomb.log import Blog
-from bomb.util import bos_run, bos_rm_empty_path
+from bomb.util import bos_run, bos_rm_empty_path, bos_fileinfo
 from bomb.lockfile import BosLockFile
 
 class BosInstallContext(object):
@@ -38,7 +38,7 @@ class BosInstallContext(object):
             self.indexdir = Bos.targetindexdir
 
         self.baselen = len(pkg.stagingdir)
-        self.contents = []
+        self.contents = [] #[mode owner size path]
 
 
 class BosPackage(object):
@@ -119,6 +119,8 @@ class BosPackage(object):
             if err: Blog.warn('%s: not a git repository.' % self.src)
             else: self.gitdir = os.path.join(out.strip(), '.git')
 
+        ## info directory:
+        ## {package-name: [[mode ownership size path]]}
         self.info = {}
 
         ## put it on shelf
@@ -167,19 +169,20 @@ class BosPackage(object):
                     flist = glob.glob(os.path.join(self.stagingdir, pattern[1:]))
                     if (not flist) and (not optional):
                         Blog.fatal('<%s> unable to find: %s' % (self.name,  pattern))
-                    for ff in flist: _install_files(ff, ctx)
+                    for ff in flist: _install_files(ff, ownership, ctx)
 
-                Blog.debug('<%s> contents:\n%s' % (ctx.name, '\n'.join(ctx.contents)))
-                for ff in ctx.contents:
+                for ctnt in ctx.contents:
+                    ff = ctnt[3]
                     path = os.path.join(ctx.indexdir, ff[1:])
                     if not os.path.exists(os.path.dirname(path)):
                         os.makedirs(os.path.dirname(path))
                     #with open(path, 'w') as f: f.write(ctx.name)
                     os.symlink(ctx.name, path)
             except:
+                Blog.error("%s unable to install." % self.name)
                 self.put_info({ctx.name:ctx.contents})
                 self.uninstall()
-                raise
+                return -1
 
             Blog.debug('%s writing package info' % ctx.name)
             self.put_info({ctx.name:ctx.contents})
@@ -190,8 +193,10 @@ class BosPackage(object):
                 if f: Blog.fatal('installed but unpackaged contents found: %s\n%s'
                                  % (self.name, _list_dir(self.stagingdir)))
         except:
+            Blog.error('%s unable to walk staging dir: %s'
+                       % (self.name, self.stagingdir))
             self.uninstall()
-            raise
+            return -2
 
         self.flush()
 
@@ -204,38 +209,89 @@ class BosPackage(object):
         uninstall also checks to remove any path that becomes empty
         due to this package's uninstallation.
         """
+        try:
+            ## must acquire the global lock
+            lockdir = Bos.nativedirlock if self.native else Bos.targetdirlock
 
-        ## must acquire the global lock
-        lockdir = Bos.nativedirlock if self.native else Bos.targetdirlock
-
-        with BosLockFile(lockdir) as lock:
-            ## clean up output and index area based on cached package info
-            for pn in self.info:
-                for fn in self.info[pn]:
-                    Blog.debug('%s removing %s' % (self.name, fn[1:]))
-                    if self.native:
-                        os.unlink(os.path.join(Bos.nativedir, fn[1:]))
-                        os.unlink(os.path.join(Bos.nativeindexdir, fn[1:]))
-                    else:
-                        os.unlink(os.path.join(Bos.targetdir, fn[1:]))
-                        os.unlink(os.path.join(Bos.targetindexdir, fn[1:]))
-
-            ## check output area to remove left-over empty paths
-            for kn in self.files:
-                for itm in self.files[kn].split('\n'):
-                    if not itm.strip(): continue
-                    dn = os.path.dirname(itm)
-                    Blog.debug('package %s removing item: %s' % (self.name, dn))
-                    if dn and  '/' != dn:
+            with BosLockFile(lockdir) as lock:
+                ## clean up output and index area based on cached package info
+                for pn in self.info:
+                    for lst in self.info[pn]:
+                        fn = lst[3]
+                        Blog.debug('%s removing %s' % (self.name, fn[1:]))
                         if self.native:
-                            bos_rm_empty_path(dn, Bos.nativedir)
-                            bos_rm_empty_path(dn, Bos.nativeindexdir)
+                            os.unlink(os.path.join(Bos.nativedir, fn[1:]))
+                            os.unlink(os.path.join(Bos.nativeindexdir, fn[1:]))
                         else:
-                            bos_rm_empty_path(dn, Bos.targetdir)
-                            bos_rm_empty_path(dn, Bos.targetindexdir)
+                            os.unlink(os.path.join(Bos.targetdir, fn[1:]))
+                            os.unlink(os.path.join(Bos.targetindexdir, fn[1:]))
+
+                ## check output area to remove left-over empty paths
+                for kn in self.files:
+                    for itm in self.files[kn].split('\n'):
+                        if not itm.strip(): continue
+                        dn = os.path.dirname(itm)
+                        Blog.debug('package %s removing item: %s' % (self.name, dn))
+                        if dn and  '/' != dn:
+                            if self.native:
+                                bos_rm_empty_path(dn, Bos.nativedir)
+                                bos_rm_empty_path(dn, Bos.nativeindexdir)
+                            else:
+                                bos_rm_empty_path(dn, Bos.targetdir)
+                                bos_rm_empty_path(dn, Bos.targetindexdir)
+
+        except: ## all uninstall errors are ignored
+            Blog.debug('%s unable to uninstall.' % self.name)
 
         self.info = {}
         self.flush()
+
+    def purge(self):
+        """
+        uninstall package and remove dangling index if any.
+        """
+
+        self.uninstall()
+
+        for r,d,f in os.walk(
+            Bos.nativeindexdir if self.native else Bos.targetindexdir):
+            for fn in f:
+                if (self.name == os.readlink(os.path.join(r, fn))):
+                    os.unlink(os.path.join(r, fn))
+
+    def apply_patch(self):
+        """
+        apply package patches if available.
+        """
+
+        ret = 0
+        if self.patch and not os.path.exists(self.patched):
+            for p in self.patch:
+                Blog.debug("patching %s: %s" % (self.name, p))
+                ret,logname = bos_run(
+                    ['patch', '-p1',
+                     '-d', self.src,
+                     '-i', os.path.join(os.path.dirname(self.mk), p)])
+                if 0 != ret:
+                    Blog.fatal('%s unable to apply patch: %s' % (self.name, p))
+
+        if 0 == ret and self.patch:
+            Bos.touch(self.patched)
+
+    def revert_patch(self):
+        """
+        revert package patches if available.
+        """
+        if self.patch and os.path.exists(self.patched):
+            for p in reversed(self.patch):
+                Blog.debug("reverting %s: %s" % (self.name, p))
+                ret,logname = bos_run(
+                    ['patch', '-Rp1',
+                     '-d', self.src,
+                     '-i', os.path.join(os.path.dirname(self.mk), p)])
+                if 0 != ret:
+                    Blog.fatal('%s unable to revert patch: %s' % (self.name, p))
+            os.unlink(self.patched)
 
     @classmethod
     def open(cls, name):
@@ -315,15 +371,17 @@ def _get_shelf_name(name):
 
     return os.path.join(Bos.shelvedir, name)
 
-def _install_files(src, context):
+def _install_files(src, ownership, context):
 
     if os.path.isdir(src):
         for ff in os.listdir(src):
             Blog.debug('installing: %s' % ff)
-            _install_files(os.path.join(src, ff), context)
+            _install_files(os.path.join(src, ff), ownership, context)
     else:
         rel_src = src[context.baselen:]
         if rel_src[0] == '/': rel_src = rel_src[1:]
+
+        mode, size = bos_fileinfo(src)
 
         ## actual install must acquire the global lock
         lockdir = Bos.nativedirlock if context.pkg.native else Bos.targetdirlock
@@ -344,7 +402,16 @@ def _install_files(src, context):
                     Blog.fatal('package %s conflicts with: %s\n%s'
                                % (context.name, owner, rel_src))
 
-        context.contents.append('/' + rel_src)
+        info = []
+        ## if file is no longer in src, it must be in destdir already
+        if '----------' == mode:
+            mode, size = bos_fileinfo(os.path.join(context.destdir, rel_src))
+        info.append(mode)
+        info.append(ownership if ownership else 'root:root')
+        info.append(size)
+        info.append('/' + rel_src)
+
+        context.contents.append(info)
 
 
 def _parse_install_item(item):
