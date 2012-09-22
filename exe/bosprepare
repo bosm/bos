@@ -25,13 +25,14 @@ from bomb.util import bos_run
 
 def bosprepare():
     name = sys.argv[1]
+    Blog.info("preparing %s" % name)
+
     pkg = BosPackage.open(name)
 
     pkg.apply_patch()
 
     ret = 0
     if pkg.prepare_yes:
-        Blog.info("preparing %s" % name)
         Bos.get_env(pkg.native)
         ret,logname = bos_run(['make', '-C', pkg.src,
                                '-f', pkg.mk,
