@@ -59,10 +59,10 @@ def bosm(args):
     if 'info' in args.target: _print_info()
 
     if 0 == ret:
-        Blog.debug("top-level make ...")
         for target in args.target:
             if target[-5:] == '-info': _print_pkg_info(target[:-5])
 
+            Blog.debug("package %s top-level make" % target)
             call(['make', '-C', Bos.cachedir,
                   '-f', Bos.topdir + 'bos/mk/main.mk',
                   '-j' + str(args.jobs) if args.jobs else '-j',
@@ -86,7 +86,8 @@ def _fuzzy_target(target):
     target_real = []
 
     pkgs_all = []
-    builtins = ['prepare', 'config', 'compile', 'install', 'clean', 'purge', 'info']
+    builtins = ['prepare', 'config', 'compile', 'install',
+                'clean', 'purge', 'info']
 
     pkgs = _all_pkgs()
 
@@ -148,9 +149,9 @@ def _fuzzy_target(target):
 
 
         ## detect action as fuzzy prefix/suffix
+        tsp = t.split('-')
         for bis in builtins:
             pp = None
-            tsp = t.split('-')
             if bis.startswith(tsp[0]):
                 pp = t[len(tsp[0]) + 1:]
             elif bis.startswith(tsp[-1]):
@@ -166,12 +167,13 @@ def _fuzzy_target(target):
             continue
         elif len(match) > 1:
             _ambiguous_target(t, match)
-
+        elif tsp[0] == 'info' or tsp[-1] == 'info':
+            target_real.append(t)
         else:
             print ('\ninvalid build target: %s\n' % t)
             sys.exit(-1)
 
-
+    #print 'build target: {0}'.format(target_real)
     return target_real
 
 
@@ -218,23 +220,28 @@ def _print_pkg_info(name):
 
     from bomb.package import BosPackage
 
-    try: pkg = BosPackage.open(name)
-    except: pass
+    Blog.debug('print package info: %s' % name)
+    try:
+        pkg = BosPackage.open(name)
 
-    print '-' * 80
-    print '%-12s: %s' % ('NAME', pkg.name)
-    print '%-12s: %s' % ('DESCRIPTION', '\n\t'.join(pkg.description.split('\n')))
-    print '-' * 80
-    print '%-12s: %s' % ('MK', pkg.mk)
-    print '%-12s: %s' % ('SRC', pkg.src)
-    if pkg.require: print '%-12s: %s' % ('DEPEND', ' '.join(pkg.require))
-    print '-' * 80
+        print '-' * 80
+        print '%-12s: %s' % ('NAME', pkg.name)
+        print '%-12s: %s' % ('DESCRIPTION', '\n\t'.join(pkg.description.split('\n')))
+        print '-' * 80
+        print '%-12s: %s' % ('MK', pkg.mk)
+        print '%-12s: %s' % ('SRC', pkg.src)
+        if pkg.require: print '%-12s: %s' % ('DEPEND', ' '.join(pkg.require))
+        print '-' * 80
 
-    if pkg.info:
-        for k, v in pkg.info.items():
-            print '\n%s:' % k
-            for i in v:
-                print '\t%s %s %10s %s' % (i[0], i[1], i[2], i[3])
+        if pkg.info:
+            for k, v in pkg.info.items():
+                print '\n%s:' % k
+                for i in v:
+                    print '\t%s %s %10s %s' % (i[0], i[1], i[2], i[3])
 
-    print
+        print
+
+    except:
+        Blog.fatal('invalid package name: %s' % name)
+
     sys.exit(0)

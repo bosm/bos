@@ -57,8 +57,10 @@ class BosPackage(object):
         if not self.mk:
             Blog.fatal("unable to find mk for package: %s" % name)
 
+        Blog.debug('start to parse .mk: %s' % self.mk)
         config = ConfigParser()
         tmp_mk = self._gen_tmp_mk()
+        Blog.debug('tmp mk: %s created' % tmp_mk)
         try:
             config.read(tmp_mk)
         except ParsingError as e:
@@ -67,6 +69,7 @@ class BosPackage(object):
 
         os.remove(tmp_mk)
 
+        Blog.debug('parsing package .mk: %s' % self.mk)
         ## package description is required
         try:
             self.description = config.get('BOSMK', 'DESCRIPTION')
@@ -74,6 +77,7 @@ class BosPackage(object):
             Blog.fatal("package description missing: %s <%s>" % (name, self.mk))
 
         ## everything else if optional
+        Blog.debug('parsing package .mk: %s optional fields.' % self.mk)
         self.require = []
         self.patch = []
         self.patched = None
@@ -298,8 +302,8 @@ class BosPackage(object):
 
         try:
             db = shelve.open(_get_shelf_name(name))
-            Blog.debug('package: %s already on shelve' % name)
             pkg = db['obj']
+            Blog.debug('package: %s already on shelve' % name)
             if os.path.getmtime(pkg.mk) != pkg.mtime:
                 pkg.uninstall()
                 pkg = None
@@ -328,7 +332,7 @@ class BosPackage(object):
                 if fn.endswith('.mk'):
                     Blog.debug('mk found as: %s at %s' % (fn, r))
                     if fn == '%s.mk' % self.name:
-                        return os.path.join(path, fn)
+                        return os.path.join(r, fn)
                     if True == self.native:
                         if fn == '%s.mk' % self.basename:
                             mk = fn
