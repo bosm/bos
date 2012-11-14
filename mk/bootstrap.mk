@@ -8,7 +8,7 @@ bos_statedir := $(CURDIR)/states/
 all: .bootstrap
 	@:
 
-bootstrap .bootstrap: ${BOS_TOPDIR}distro/config/arch ${BOS_TOPDIR}distro/config/packages .rebootstrap
+bootstrap .bootstrap: ${BOS_TOPDIR}distro/config/buildenv ${BOS_TOPDIR}distro/config/packages .rebootstrap
 	@$(E)boslog -d "bootstrapping build system ..."
 	@mkdir -p $(bos_statedir)
 	@$(E)bosbootstrap && echo -n "${BOS_TOPDIR}" > .bootstrap

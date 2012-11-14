@@ -27,13 +27,14 @@ configdir = os.path.join(distrodir, 'config')
 
 config = ConfigParser()
 config.read([os.path.join(configdir, 'packages'),
-             os.path.join(configdir, 'arch')])
+             os.path.join(configdir, 'buildenv')])
 
 def bosbootstrap():
 
     Blog.info("bootstraping ...")
     _pkg_list_gen()
 
+    # all common host side environments
     Bos.set_env({'BOS_TARGET':'i686-pc-linux-gnu'}, native = True)
     Bos.set_env({'BOS_SYSROOT':Bos.nativedir}, True)
     Bos.set_env({'PKG_CONFIG_PATH':Bos.nativedir + 'usr/lib/pkgconfig'}, True)
@@ -41,6 +42,7 @@ def bosbootstrap():
     Bos.set_env({'PKG_CONFIG_ALLOW_SYSTEM_LIBS':'1'}, True)
     Bos.set_env({'PKG_CONFIG_ALLOW_SYSTEM_CFLAGS':'1'}, True)
 
+    # all common target side environments
     Bos.set_env({'BOS_SYSROOT':Bos.targetdir})
     Bos.set_env({'PKG_CONFIG_PATH':Bos.targetdir + 'usr/lib/pkgconfig'})
     Bos.set_env({'PKG_CONFIG_LIBDIR':Bos.targetdir + 'usr/lib/pkgconfig'})
@@ -48,8 +50,18 @@ def bosbootstrap():
     Bos.set_env({'PKG_CONFIG_ALLOW_SYSTEM_LIBS':'1'})
     Bos.set_env({'PKG_CONFIG_ALLOW_SYSTEM_CFLAGS':'1'})
 
+    # parse out all target and host environments from distro
+    _parse_buildenv('common-env', True)
+    _parse_buildenv('common-env', False)
+    _parse_buildenv('host-env', True)
+    _parse_buildenv('target-env', False)
+
     Bos.save_env()
 
+def _parse_buildenv(env, native = False):
+
+    for key, value in config.items(env):
+        Bos.set_env({key.upper(): value}, native)
 
 def _pkg_list_gen():
 
