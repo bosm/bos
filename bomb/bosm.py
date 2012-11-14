@@ -92,7 +92,7 @@ def _fuzzy_target(target):
     pkgs = _all_pkgs()
 
     pkgs_all.extend(pkgs)
-    pkgs_all.extend(['all', 'clean', 'info'])
+    pkgs_all.extend(['all', 'bootstrap', 'clean', 'info'])
 
     match = []
     for t in target:
