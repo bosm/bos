@@ -24,40 +24,10 @@ from bomb.util import bos_run
 from bomb.lockfile import BosLockFile
 
 def bosclean():
-
     name = sys.argv[1]
-    Blog.info("cleaning %s" % name)
 
     pkg = BosPackage.open(name)
-
-    ret = 0
-    if pkg.clean_yes:
-        Blog.debug("cleaning %s" % name)
-        Bos.get_env(pkg.native)
-        ret,logname = bos_run(['make', '-C', pkg.src,
-                               '-f', pkg.mk,
-                               '--no-print-directory',
-                               'clean'])
-        if 0 != ret:
-            Blog.warn('%s unable to clean' % name)
-
-    pkg.revert_patch()
-
-    if pkg.gitdir:
-        with BosLockFile(os.path.join(pkg.gitdir, '.bos.lock')) as lock:
-            bos_run(['git', '--git-dir=%s' % pkg.gitdir,
-                     'clean', '-Xfd'])
-
-    pkg.uninstall()
-
-    try:
-        for fn in glob.glob('%s.*' % (Bos.statesdir + name)): os.unlink(fn)
-    except OSError as e:
-        Blog.warn(e.strerror + ': ' + e.filename)
-
-    try:
-        shutil.rmtree(os.path.dirname(pkg.logdir))
-    except: pass
+    pkg.clean()
 
 
 if __name__ == '__main__':

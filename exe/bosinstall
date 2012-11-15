@@ -27,27 +27,12 @@ def bosinstall():
 
     name = sys.argv[1]
     pkg = BosPackage.open(name)
-    pkg.uninstall()
 
-    ret = 0
-    if pkg.install_yes:
-        Blog.info("installing %s" % name)
-
-        if not os.path.exists(pkg.stagingdir): os.makedirs(pkg.stagingdir)
-
-        ret,logname = bos_run(['make', '-C', pkg.src, '-f', pkg.mk,
-                               '--no-print-directory',
-                               'DESTDIR=%s' % pkg.stagingdir,
-                               'install'], pkg.logdir + '-install')
-
-        if 0 == ret: ret = pkg.install()
-
-        if 0 != ret:
-            Blog.fatal('%s failed to install, see log at: %s' % (name, logname))
-
-        shutil.rmtree(pkg.stagingdir)
-
-    if 0 == ret: Bos.touch(Bos.statesdir + name + '.d')
+    ret,logname = pkg.install()
+    if 0 != ret:
+        Blog.fatal('%s failed to install, see log at: %s' % (name, logname))
+    else:
+        Bos.touch(Bos.statesdir + name + '.d')
 
 
 if __name__ == '__main__':

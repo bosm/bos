@@ -132,6 +132,135 @@ class BosPackage(object):
         db['obj'] = self
         db.close()
 
+    def prepare(self):
+
+        Blog.info("preparing %s" % self.name)
+        self.apply_patch()
+
+        if self.prepare_yes:
+            Bos.get_env(self.native)
+            return bos_run(['make', '-C', self.src,
+                            '-f', self.mk,
+                            '--no-print-directory',
+                            'MK=%s' % os.path.dirname(self.mk),
+                            'prepare'], self.logdir + '-prepare')
+        return (0, None)
+
+    def config(self):
+
+        if self.config_yes:
+            Blog.info("configuring %s" % self.name)
+            Bos.get_env(self.native)
+            return bos_run(['make', '-C', self.src,
+                            '-f', self.mk,
+                            '--no-print-directory',
+                            'config'], self.logdir + '-config')
+        return (0, None)
+
+    def compile(self):
+
+        if self.compile_yes:
+            Blog.info("compiling %s" % self.name)
+            Bos.get_env(self.native)
+            return bos_run(['make', '-C', self.src,
+                            '-f', self.mk,
+                            '--no-print-directory',
+                            'compile'], self.logdir + '-compile')
+        return (0, None)
+
+    def compile(self):
+
+        if self.compile_yes:
+            Blog.info("compiling %s" % self.name)
+            Bos.get_env(self.native)
+            return bos_run(['make', '-C', self.src,
+                            '-f', self.mk,
+                            '--no-print-directory',
+                            'compile'], self.logdir + '-compile')
+        return (0, None)
+
+    def install(self):
+
+        self._uninstall()
+        if self.install_yes:
+            Blog.info("installing %s" % self.name)
+            if not os.path.exists(self.stagingdir): os.makedirs(self.stagingdir)
+            ret,logname = bos_run(['make', '-C', self.src,
+                            '-f', self.mk,
+                            '--no-print-directory',
+                            'DESTDIR=%s' % self.stagingdir,
+                            'install'], self.logdir + '-install')
+            if 0 == ret: ret = self._install()
+            shutil.rmtree(self.stagingdir)
+            return (ret, logname)
+
+        return (0, None)
+
+    def clean(self):
+
+        if self.clean_yes:
+            Blog.info("cleaning %s" % self.name)
+            Bos.get_env(self.native)
+            ret,logname = bos_run(['make', '-C', self.src,
+                            '-f', self.mk,
+                            '--no-print-directory',
+                            'clean'])
+            if 0 != ret: Blog.warn('%s unable to clean' % self.name)
+            self.revert_patch()
+
+            if self.gitdir:
+                with BosLockFile(os.path.join(self.gitdir, '.bos.lock')) as lock:
+                    bos_run(['git', '--git-dir=%s' % self.gitdir,
+                             'clean', '-Xfd'])
+
+            self._uninstall()
+
+            try:
+                for fn in glob.glob('%s.*' % (Bos.statesdir + self.name)): os.unlink(fn)
+            except OSError as e:
+                Blog.warn(e.strerror + ': ' + e.filename)
+
+            try:
+                shutil.rmtree(os.path.dirname(self.logdir))
+            except: pass
+
+        return (0, None)
+
+    def purge(self):
+
+        if self.clean_yes:
+            Blog.info("purging %s" % self.name)
+            Bos.get_env(self.native)
+            ret,logname = bos_run(['make', '-C', self.src,
+                            '-f', self.mk,
+                            '--no-print-directory',
+                            'clean'])
+            if 0 != ret: Blog.warn('%s unable to clean' % self.name)
+            self.revert_patch()
+
+            if self.gitdir:
+                with BosLockFile(os.path.join(self.gitdir, '.bos.lock')) as lock:
+                    from subprocess import Popen, PIPE
+                    Popen('rm -fr %s/*' % self.src, shell = True,
+                          stdout = PIPE, stderr = PIPE
+                          ).communicate()
+                    Popen('cd %s/.. && git reset --hard' % self.gitdir, shell = True,
+                          stdout = PIPE, stderr = PIPE
+                          ).communicate()
+
+            self._purge()
+
+            try:
+                for fn in glob.glob('%s.*' % (Bos.statesdir + self.name)): os.unlink(fn)
+            except OSError as e:
+                Blog.warn(e.strerror + ': ' + e.filename)
+
+            try:
+                shutil.rmtree(os.path.dirname(self.logdir))
+            except: pass
+
+        return (0, None)
+
     def put_info(self, info):
 
         self.info.update(info)
@@ -142,7 +271,7 @@ class BosPackage(object):
         db['obj'] = self
         db.close()
 
-    def install(self):
+    def _install(self):
         """
         install package from staging area to output area and populate DB
 
@@ -185,7 +314,7 @@ class BosPackage(object):
             except:
                 Blog.error("%s unable to install." % self.name)
                 self.put_info({ctx.name:ctx.contents})
-                self.uninstall()
+                self._uninstall()
                 return -1
 
             Blog.debug('%s writing package info' % ctx.name)
@@ -199,14 +328,14 @@ class BosPackage(object):
         except:
             Blog.error('%s unable to walk staging dir: %s'
                        % (self.name, self.stagingdir))
-            self.uninstall()
+            self._uninstall()
             return -2
 
         self.flush()
 
         return 0
 
-    def uninstall(self):
+    def _uninstall(self):
         """
         uninstall package both from output and index DB area
 
@@ -250,12 +379,12 @@ class BosPackage(object):
         self.info = {}
         self.flush()
 
-    def purge(self):
+    def _purge(self):
         """
         uninstall package and remove dangling index if any.
         """
 
-        self.uninstall()
+        self._uninstall()
 
         for r,d,f in os.walk(
             Bos.nativeindexdir if self.native else Bos.targetindexdir):
@@ -305,7 +434,7 @@ class BosPackage(object):
             pkg = db['obj']
             Blog.debug('package: %s already on shelve' % name)
             if os.path.getmtime(pkg.mk) != pkg.mtime:
-                pkg.uninstall()
+                pkg._uninstall()
                 pkg = None
 
         except KeyError: pkg = None

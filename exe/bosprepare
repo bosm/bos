@@ -25,24 +25,13 @@ from bomb.util import bos_run
 
 def bosprepare():
     name = sys.argv[1]
-    Blog.info("preparing %s" % name)
 
     pkg = BosPackage.open(name)
-
-    pkg.apply_patch()
-
-    ret = 0
-    if pkg.prepare_yes:
-        Bos.get_env(pkg.native)
-        ret,logname = bos_run(['make', '-C', pkg.src,
-                               '-f', pkg.mk,
-                               '--no-print-directory',
-                               'MK=%s' % os.path.dirname(pkg.mk),
-                               'prepare'], pkg.logdir + '-prepare')
-        if 0 != ret:
-            Blog.fatal('%s failed to prepare, see log at: %s' % (name, logname))
-
-    if 0 == ret: Bos.touch(Bos.statesdir + name + '.p')
+    ret,logname = pkg.prepare()
+    if 0 != ret:
+        Blog.fatal('%s failed to prepare, see log at: %s' % (name, logname))
+    else:
+        Bos.touch(Bos.statesdir + name + '.p')
 
 if __name__ == '__main__':
     try:

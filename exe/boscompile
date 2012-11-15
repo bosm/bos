@@ -26,18 +26,11 @@ def boscompile():
     name = sys.argv[1]
     pkg = BosPackage.open(name)
 
-    ret = 0
-    if pkg.compile_yes:
-        Blog.info("compiling %s" % name)
-        ret,logname = bos_run(['make', '-C', pkg.src,
-                               '-f', pkg.mk,
-                               '--no-print-directory',
-                               'compile'], pkg.logdir + '-compile')
-
-        if 0 != ret:
-            Blog.fatal('%s failed to compile, see log at: %s' % (name, logname))
-
-    if 0 == ret: Bos.touch(Bos.statesdir + name + '.b')
+    ret,logname = pkg.compile()
+    if 0 != ret:
+        Blog.fatal('%s failed to compile, see log at: %s' % (name, logname))
+    else:
+        Bos.touch(Bos.statesdir + name + '.b')
 
 if __name__ == '__main__':
     try:
