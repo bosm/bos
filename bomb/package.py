@@ -59,15 +59,14 @@ class BosPackage(object):
 
         Blog.debug('start to parse .mk: %s' % self.mk)
         config = ConfigParser()
-        tmp_mk = self._gen_tmp_mk()
-        Blog.debug('tmp mk: %s created' % tmp_mk)
+        meta,self.realmk = self._preprocess_mk()
         try:
-            config.read(tmp_mk)
+            config.read(meta)
         except ParsingError as e:
             Blog.error(e.message)
             Blog.fatal("failed to parse .mk:  %s <%s>" % (name, self.mk))
 
-        os.remove(tmp_mk)
+        os.remove(meta)
 
         Blog.debug('parsing package .mk: %s' % self.mk)
         ## package description is required
@@ -140,7 +139,7 @@ class BosPackage(object):
         if self.prepare_yes:
             Bos.get_env(self.native)
             return bos_run(['make', '-C', self.src,
-                            '-f', self.mk,
+                            '-f', self.realmk,
                             '--no-print-directory',
                             'MK=%s' % os.path.dirname(self.mk),
                             'prepare'], self.logdir + '-prepare')
@@ -152,7 +151,7 @@ class BosPackage(object):
             Blog.info("configuring %s" % self.name)
             Bos.get_env(self.native)
             return bos_run(['make', '-C', self.src,
-                            '-f', self.mk,
+                            '-f', self.realmk,
                             '--no-print-directory',
                             'config'], self.logdir + '-config')
         return (0, None)
@@ -163,7 +162,7 @@ class BosPackage(object):
             Blog.info("compiling %s" % self.name)
             Bos.get_env(self.native)
             return bos_run(['make', '-C', self.src,
-                            '-f', self.mk,
+                            '-f', self.realmk,
                             '--no-print-directory',
                             'compile'], self.logdir + '-compile')
         return (0, None)
@@ -174,7 +173,7 @@ class BosPackage(object):
             Blog.info("compiling %s" % self.name)
             Bos.get_env(self.native)
             return bos_run(['make', '-C', self.src,
-                            '-f', self.mk,
+                            '-f', self.realmk,
                             '--no-print-directory',
                             'compile'], self.logdir + '-compile')
         return (0, None)
@@ -186,7 +185,7 @@ class BosPackage(object):
             Blog.info("installing %s" % self.name)
             if not os.path.exists(self.stagingdir): os.makedirs(self.stagingdir)
             ret,logname = bos_run(['make', '-C', self.src,
-                            '-f', self.mk,
+                            '-f', self.realmk,
                             '--no-print-directory',
                             'DESTDIR=%s' % self.stagingdir,
                             'install'], self.logdir + '-install')
@@ -202,7 +201,7 @@ class BosPackage(object):
             Blog.info("cleaning %s" % self.name)
             Bos.get_env(self.native)
             ret,logname = bos_run(['make', '-C', self.src,
-                            '-f', self.mk,
+                            '-f', self.realmk,
                             '--no-print-directory',
                             'clean'])
             if 0 != ret: Blog.warn('%s unable to clean' % self.name)
@@ -232,7 +231,7 @@ class BosPackage(object):
             Blog.info("purging %s" % self.name)
             Bos.get_env(self.native)
             ret,logname = bos_run(['make', '-C', self.src,
-                            '-f', self.mk,
+                            '-f', self.realmk,
                             '--no-print-directory',
                             'clean'])
             if 0 != ret: Blog.warn('%s unable to clean' % self.name)
@@ -469,10 +468,11 @@ class BosPackage(object):
 
         return None if not mk else os.path.join(path, mk)
 
-    def _gen_tmp_mk(self):
+    def _preprocess_mk(self):
         import re
 
-        tmpmk = self.mk + '.tmp'
+        meta = self.mk + '.meta'
+        real = os.path.join(Bos.mkdir, os.path.basename(self.mk))
 
         self.prepare_yes = False
         self.config_yes = False
@@ -480,23 +480,35 @@ class BosPackage(object):
         self.install_yes = False
         self.clean_yes = False
 
-        with open(tmpmk, "w") as f:
-            f.write('[BOSMK]\n')
-            for line in open(self.mk):
-                if line[:3] == '## ': f.write(line[3:])
-                else:
-                    if re.match('^[\w\s]*prepare[\w\s]*:', line):
-                        self.prepare_yes = True
-                    if re.match('^[\w\s]*config[\w\s]*:', line):
-                        self.config_yes = True
-                    if re.match('^[\w\s]*compile[\w\s]*:', line):
-                        self.compile_yes = True
-                    if re.match('^[\w\s]*install[\w\s]*:', line):
-                        self.install_yes = True
-                    if re.match('^[\w\s]*clean[\w\s]*:', line):
-                        self.clean_yes = True
+        r = open(real, "w")
+        try:
+            r.write('## AUTOGENERATED FILE - DO NOT MODIFY\n')
+            r.write('.PHONY: prepare config compile install clean\n')
 
-        return tmpmk
+            with open(meta, "w") as m:
+                m.write('[BOSMK]\n')
+                for line in open(self.mk):
+                    if line[:3] == '## ': m.write(line[3:])
+                    else:
+                        if re.match(r'^\s*$', line): continue
+                        else : r.write(line)
+
+                        if re.match(r'^\w+', line) :
+                            if re.match(r'\bprepare\b', line):
+                                self.prepare_yes = True
+                            if re.match(r'\bconfig\b', line):
+                                self.config_yes = True
+                            if re.match(r'\bcompile\b', line):
+                                self.compile_yes = True
+                            if re.match(r'\binstall\b', line):
+                                self.install_yes = True
+                            if re.match(r'\bclean\b', line):
+                                self.clean_yes = True
+
+        finally:
+            r.close()
+
+        return meta,real
 
 
 def _get_shelf_name(name):

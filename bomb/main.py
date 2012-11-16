@@ -28,6 +28,7 @@ class Bos(object):
     cachedir = builddir + '.cache/'
     statesdir = cachedir + 'states/'
     shelvedir = cachedir + 'shelve/'
+    mkdir = cachedir + 'mk/'
 
     nativeindexdir = cachedir + 'index/native/'
     targetindexdir = cachedir + 'index/target/'
@@ -48,7 +49,7 @@ class Bos(object):
     @classmethod
     def setup(cls):
 
-        for d in [cls.shelvedir, cls.statesdir,
+        for d in [cls.shelvedir, cls.statesdir, cls.mkdir,
                   cls.nativeindexdir, cls.targetindexdir,
                   cls.logdir, cls.nativedir, cls.targetdir]:
             dd = os.path.join(cls.topdir, d)
