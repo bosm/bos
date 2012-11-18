@@ -131,10 +131,26 @@ class BosPackage(object):
         db['obj'] = self
         db.close()
 
+    @classmethod
+    def open(cls, name):
+
+        try:
+            db = shelve.open(_get_shelf_name(name))
+            pkg = db['obj']
+            Blog.debug('package: %s already on shelve' % name)
+            if os.path.getmtime(pkg.mk) != pkg.mtime:
+                pkg._uninstall()
+                pkg = None
+
+        except KeyError: pkg = None
+
+        if not pkg: return BosPackage(name)
+        return pkg
+
     def prepare(self):
 
         Blog.info("preparing %s" % self.name)
-        self.apply_patch()
+        self._apply_patch()
 
         if self.prepare_yes:
             Bos.get_env(self.native)
@@ -205,7 +221,7 @@ class BosPackage(object):
                             '--no-print-directory',
                             'clean'])
             if 0 != ret: Blog.warn('%s unable to clean' % self.name)
-            self.revert_patch()
+            self._revert_patch()
 
             if self.gitdir:
                 with BosLockFile(os.path.join(self.gitdir, '.bos.lock')) as lock:
@@ -235,7 +251,7 @@ class BosPackage(object):
                             '--no-print-directory',
                             'clean'])
             if 0 != ret: Blog.warn('%s unable to clean' % self.name)
-            self.revert_patch()
+            self._revert_patch()
 
             if self.gitdir:
                 with BosLockFile(os.path.join(self.gitdir, '.bos.lock')) as lock:
@@ -260,11 +276,11 @@ class BosPackage(object):
 
         return (0, None)
 
-    def put_info(self, info):
+    def _put_info(self, info):
 
         self.info.update(info)
 
-    def flush(self):
+    def _flush(self):
 
         db = shelve.open(_get_shelf_name(self.name))
         db['obj'] = self
@@ -312,12 +328,12 @@ class BosPackage(object):
                     os.symlink(ctx.name, path)
             except:
                 Blog.error("%s unable to install." % self.name)
-                self.put_info({ctx.name:ctx.contents})
+                self._put_info({ctx.name:ctx.contents})
                 self._uninstall()
                 return -1
 
             Blog.debug('%s writing package info' % ctx.name)
-            self.put_info({ctx.name:ctx.contents})
+            self._put_info({ctx.name:ctx.contents})
 
         ## post process: walk the stagingdir to make sure there's no files left
         try:
@@ -330,7 +346,7 @@ class BosPackage(object):
             self._uninstall()
             return -2
 
-        self.flush()
+        self._flush()
 
         return 0
 
@@ -376,7 +392,7 @@ class BosPackage(object):
             Blog.debug('%s unable to uninstall.' % self.name)
 
         self.info = {}
-        self.flush()
+        self._flush()
 
     def _purge(self):
         """
@@ -391,7 +407,7 @@ class BosPackage(object):
                 if (self.name == os.readlink(os.path.join(r, fn))):
                     os.unlink(os.path.join(r, fn))
 
-    def apply_patch(self):
+    def _apply_patch(self):
         """
         apply package patches if available.
         """
@@ -410,7 +426,7 @@ class BosPackage(object):
         if 0 == ret and self.patch:
             Bos.touch(self.patched)
 
-    def revert_patch(self):
+    def _revert_patch(self):
         """
         revert package patches if available.
         """
@@ -424,22 +440,6 @@ class BosPackage(object):
                 if 0 != ret:
                     Blog.fatal('%s unable to revert patch: %s' % (self.name, p))
             os.unlink(self.patched)
-
-    @classmethod
-    def open(cls, name):
-
-        try:
-            db = shelve.open(_get_shelf_name(name))
-            pkg = db['obj']
-            Blog.debug('package: %s already on shelve' % name)
-            if os.path.getmtime(pkg.mk) != pkg.mtime:
-                pkg._uninstall()
-                pkg = None
-
-        except KeyError: pkg = None
-
-        if not pkg: return BosPackage(name)
-        return pkg
 
     def _get_mk(self):
         Blog.debug("get mkpath for: %s" % self.name)

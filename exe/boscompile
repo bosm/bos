@@ -20,7 +20,6 @@ import os, sys
 from bomb.main import Bos
 from bomb.log import Blog
 from bomb.package import BosPackage
-from bomb.util import bos_run
 
 def boscompile():
     name = sys.argv[1]

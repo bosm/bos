@@ -16,17 +16,15 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 import os, sys
-from subprocess import call
 
 from bomb.main import Bos
 from bomb.log import Blog
 from bomb.package import BosPackage
-from bomb.util import bos_run
 
 def bosconfig():
     name = sys.argv[1]
-
     pkg = BosPackage.open(name)
+
     ret,logname = pkg.config()
     if 0 != ret:
         Blog.fatal('%s failed to config, see log at: %s' % (name, logname))

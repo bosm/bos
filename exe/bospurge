@@ -15,18 +15,16 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-import os, sys, glob, shutil
+import os, sys
 
 from bomb.main import Bos
 from bomb.log import Blog
 from bomb.package import BosPackage
-from bomb.util import bos_run
-from bomb.lockfile import BosLockFile
 
 def bospurge():
     name = sys.argv[1]
-
     pkg = BosPackage.open(name)
+
     pkg.purge()
 
 
