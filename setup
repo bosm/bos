@@ -1,0 +1,36 @@
+#!/bin/bash
+
+gettopdir()
+{
+    local topdir=${_TOPDIR_}
+    local topfile=bos/bin/bosm
+    if [ -n "$topdir" -a -f "$topdir/$topfile" ] ; then
+        echo $topdir
+    else
+        local here=`pwd`
+        topdir=$here
+        while [ ! -f $topfile -a $topdir != "/" ]; do
+            cd .. > /dev/null
+            topdir=`pwd`
+        done
+        cd $here > /dev/null
+
+        if [ -f "$topdir/$topfile" ]; then
+            echo $topdir
+        else
+            echo -e "\nunable to locate topdir, must run from within bosm tree.\n" >&2
+            exit -1
+        fi
+    fi
+}
+
+getpath()
+{
+    local path=$PATH
+    local bindir=$_TOPDIR_/bos/bin
+    [ -e "$_TOPDIR_" ] && path=$bindir:${PATH//$bindir:}
+    echo $path
+}
+
+export _TOPDIR_=$(gettopdir)
+export PATH=$(getpath)
