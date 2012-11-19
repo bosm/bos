@@ -28,7 +28,7 @@ class BosInstallContext(object):
 
         self.pkg = pkg
 
-        if pkg.native:
+        if pkg._native:
             self.name = name + '-native'
             self.destdir = Bos.nativedir
             self.indexdir = Bos.nativeindexdir
@@ -37,7 +37,7 @@ class BosInstallContext(object):
             self.destdir = Bos.targetdir
             self.indexdir = Bos.targetindexdir
 
-        self.baselen = len(pkg.stagingdir)
+        self.baselen = len(pkg._get_stagingdir())
         self.contents = [] #[mode owner size path]
 
 
@@ -47,48 +47,48 @@ class BosPackage(object):
 
         self.name = name
         if name[-7:] == '-native':
-            self.basename = name[:-7]
-            self.native = True
+            self._basename = name[:-7]
+            self._native = True
         else:
-            self.basename = name
-            self.native = False
+            self._basename = name
+            self._native = False
 
         self.mk = self._get_mk()
         if not self.mk:
             Blog.fatal("unable to find mk for package: %s" % name)
+        mk_full_path = os.path.join(Bos.topdir, self.mk)
 
         Blog.debug('start to parse .mk: %s' % self.mk)
         config = ConfigParser()
-        meta,self.realmk = self._preprocess_mk()
+        meta = self._preprocess_mk()
         try:
             config.read(meta)
         except ParsingError as e:
             Blog.error(e.message)
             Blog.fatal("failed to parse .mk:  %s <%s>" % (name, self.mk))
-
         os.remove(meta)
 
         Blog.debug('parsing package .mk: %s' % self.mk)
         ## package description is required
         try:
-            self.description = config.get('BOSMK', 'DESCRIPTION')
+            self._description = config.get('BOSMK', 'DESCRIPTION')
         except NoOptionError:
             Blog.fatal("package description missing: %s <%s>" % (name, self.mk))
 
         ## everything else if optional
         Blog.debug('parsing package .mk: %s optional fields.' % self.mk)
         self.require = []
-        self.patch = []
-        self.patched = None
-        self.src = None
-        self.files = {}
+        self._patch = []
+        self._patched = None
+        self._src = None
+        self._files = {}
         for fld in dict(config.items('BOSMK')):
             if 'require' == fld:
                 require = dict(config.items('BOSMK'))[
                     'require'].replace('\n', ' ').split(' ')
 
                 for dep in require:
-                    if self.native:
+                    if self._native:
                         if dep[-7:] != '-native':
                             self.require.append(dep + '-native')
                             continue
@@ -98,33 +98,21 @@ class BosPackage(object):
                 sources = dict(config.items('BOSMK'))[
                     'source'].replace('\n', ' ').split(' ')
                 for s in sources:
-                    if os.path.splitext(s)[1] == '.patch': self.patch.append(s)
+                    if os.path.splitext(s)[1] == '.patch': self._patch.append(s)
 
-                self.src = os.path.join(Bos.topdir, sources[0])
+                self._src = sources[0]
 
             elif fld[:5] == 'files':
-                self.files.update({fld: dict(config.items('BOSMK'))[fld]})
+                self._files.update({fld: dict(config.items('BOSMK'))[fld]})
 
         ## package misc
-        if self.patch: self.patched = os.path.join(self.src, '.bos-patch-applied')
-        self.mtime = os.path.getmtime(self.mk)
-        self.stagingdir = os.path.join(Bos.cachedir, name)
-        self.logdir = os.path.join(Bos.logdir, self.basename,
-                                   'native' if self.native else 'target')
-
-        self.gitdir = None
-        if self.src:
-            from subprocess import Popen, PIPE
-            out, err = Popen('cd %s; git rev-parse --show-toplevel'
-                             % self.src, shell = True,
-                             stdout = PIPE, stderr = PIPE
-                             ).communicate()
-            if err: Blog.warn('%s: not a git repository.' % self.src)
-            else: self.gitdir = os.path.join(out.strip(), '.git')
+        if self._patch: self._patched = os.path.join(Bos.topdir, self._src, '.bos-patch-applied')
+        self._mtime = os.path.getmtime(mk_full_path)
+        self._gitdir = self._get_gitdir()
 
         ## info directory:
         ## {package-name: [[mode ownership size path]]}
-        self.info = {}
+        self._info = {}
 
         ## put it on shelf
         db = shelve.open(_get_shelf_name(name))
@@ -138,7 +126,7 @@ class BosPackage(object):
             db = shelve.open(_get_shelf_name(name))
             pkg = db['obj']
             Blog.debug('package: %s already on shelve' % name)
-            if os.path.getmtime(pkg.mk) != pkg.mtime:
+            if os.path.getmtime(os.path.join(Bos.topdir, pkg.mk)) != pkg._mtime:
                 pkg._uninstall()
                 pkg = None
 
@@ -153,45 +141,34 @@ class BosPackage(object):
         self._apply_patch()
 
         if self.prepare_yes:
-            Bos.get_env(self.native)
-            return bos_run(['make', '-C', self.src,
-                            '-f', self.realmk,
+            Bos.get_env(self._native)
+            return bos_run(['make', '-C', os.path.join(Bos.topdir, self._src),
+                            '-f', os.path.join(Bos.mkdir, os.path.basename(self.mk)),
                             '--no-print-directory',
-                            'MK=%s' % os.path.dirname(self.mk),
-                            'prepare'], self.logdir + '-prepare')
+                            'MK=%s' % os.path.dirname(os.path.join(Bos.topdir, self.mk)),
+                            'prepare'], self._get_logdir() + '-prepare')
         return (0, None)
 
     def config(self):
 
         if self.config_yes:
             Blog.info("configuring %s" % self.name)
-            Bos.get_env(self.native)
-            return bos_run(['make', '-C', self.src,
-                            '-f', self.realmk,
+            Bos.get_env(self._native)
+            return bos_run(['make', '-C', os.path.join(Bos.topdir, self._src),
+                            '-f', os.path.join(Bos.mkdir, os.path.basename(self.mk)),
                             '--no-print-directory',
-                            'config'], self.logdir + '-config')
+                            'config'], self._get_logdir() + '-config')
         return (0, None)
 
     def compile(self):
 
         if self.compile_yes:
             Blog.info("compiling %s" % self.name)
-            Bos.get_env(self.native)
-            return bos_run(['make', '-C', self.src,
-                            '-f', self.realmk,
+            Bos.get_env(self._native)
+            return bos_run(['make', '-C', os.path.join(Bos.topdir, self._src),
+                            '-f', os.path.join(Bos.mkdir, os.path.basename(self.mk)),
                             '--no-print-directory',
-                            'compile'], self.logdir + '-compile')
-        return (0, None)
-
-    def compile(self):
-
-        if self.compile_yes:
-            Blog.info("compiling %s" % self.name)
-            Bos.get_env(self.native)
-            return bos_run(['make', '-C', self.src,
-                            '-f', self.realmk,
-                            '--no-print-directory',
-                            'compile'], self.logdir + '-compile')
+                            'compile'], self._get_logdir() + '-compile')
         return (0, None)
 
     def install(self):
@@ -199,14 +176,14 @@ class BosPackage(object):
         self._uninstall()
         if self.install_yes:
             Blog.info("installing %s" % self.name)
-            if not os.path.exists(self.stagingdir): os.makedirs(self.stagingdir)
-            ret,logname = bos_run(['make', '-C', self.src,
-                            '-f', self.realmk,
-                            '--no-print-directory',
-                            'DESTDIR=%s' % self.stagingdir,
-                            'install'], self.logdir + '-install')
+            if not os.path.exists(self._get_stagingdir()): os.makedirs(self._get_stagingdir())
+            ret,logname = bos_run(['make', '-C', os.path.join(Bos.topdir, self._src),
+                                   '-f', os.path.join(Bos.mkdir, os.path.basename(self.mk)),
+                                   '--no-print-directory',
+                                   'DESTDIR=%s' % self._get_stagingdir(),
+                                   'install'], self._get_logdir() + '-install')
             if 0 == ret: ret = self._install()
-            shutil.rmtree(self.stagingdir)
+            shutil.rmtree(self._get_stagingdir())
             return (ret, logname)
 
         return (0, None)
@@ -215,17 +192,17 @@ class BosPackage(object):
 
         if self.clean_yes:
             Blog.info("cleaning %s" % self.name)
-            Bos.get_env(self.native)
-            ret,logname = bos_run(['make', '-C', self.src,
-                            '-f', self.realmk,
-                            '--no-print-directory',
-                            'clean'])
+            Bos.get_env(self._native)
+            ret,logname = bos_run(['make', '-C', os.path.join(Bos.topdir, self._src),
+                                   '-f', os.path.join(Bos.mkdir, os.path.basename(self.mk)),
+                                   '--no-print-directory',
+                                   'clean'])
             if 0 != ret: Blog.warn('%s unable to clean' % self.name)
             self._revert_patch()
 
-            if self.gitdir:
-                with BosLockFile(os.path.join(self.gitdir, '.bos.lock')) as lock:
-                    bos_run(['git', '--git-dir=%s' % self.gitdir,
+            if self._gitdir:
+                with BosLockFile(os.path.join(Bos.topdir, self._gitdir, '.bos.lock')) as lock:
+                    bos_run(['git', '--git-dir=%s' % os.path.join(Bos.topdir, self._gitdir),
                              'clean', '-Xfd'])
 
             self._uninstall()
@@ -236,7 +213,7 @@ class BosPackage(object):
                 Blog.warn(e.strerror + ': ' + e.filename)
 
             try:
-                shutil.rmtree(os.path.dirname(self.logdir))
+                shutil.rmtree(os.path.dirname(self._get_logdir()))
             except: pass
 
         return (0, None)
@@ -245,21 +222,23 @@ class BosPackage(object):
 
         if self.clean_yes:
             Blog.info("purging %s" % self.name)
-            Bos.get_env(self.native)
-            ret,logname = bos_run(['make', '-C', self.src,
-                            '-f', self.realmk,
-                            '--no-print-directory',
-                            'clean'])
+            Bos.get_env(self._native)
+            ret,logname = bos_run(['make', '-C', os.path.join(Bos.topdir, self._src),
+                                   '-f', os.path.join(Bos.mkdir, os.path.basename(self.mk)),
+                                   '--no-print-directory',
+                                   'clean'])
             if 0 != ret: Blog.warn('%s unable to clean' % self.name)
             self._revert_patch()
 
-            if self.gitdir:
-                with BosLockFile(os.path.join(self.gitdir, '.bos.lock')) as lock:
+            if self._gitdir:
+                with BosLockFile(os.path.join(Bos.topdir, self._gitdir, '.bos.lock')) as lock:
                     from subprocess import Popen, PIPE
-                    Popen('rm -fr %s/*' % self.src, shell = True,
+                    Popen('rm -fr %s/*' % os.path.join(Bos.topdir, self._src),
+                          shell = True,
                           stdout = PIPE, stderr = PIPE
                           ).communicate()
-                    Popen('cd %s/.. && git reset --hard' % self.gitdir, shell = True,
+                    Popen('cd %s/.. && git reset --hard' % os.path.join(Bos.topdir, self._gitdir),
+                          shell = True,
                           stdout = PIPE, stderr = PIPE
                           ).communicate()
 
@@ -271,14 +250,33 @@ class BosPackage(object):
                 Blog.warn(e.strerror + ': ' + e.filename)
 
             try:
-                shutil.rmtree(os.path.dirname(self.logdir))
+                shutil.rmtree(os.path.dirname(self._get_logdir()))
             except: pass
 
         return (0, None)
 
+    def dump(self):
+
+        print '-' * 80
+        print '%-12s: %s' % ('NAME', self.name)
+        print '%-12s: %s' % ('DESCRIPTION', '\n\t'.join(self._description.split('\n')))
+        print '-' * 80
+        print '%-12s: %s' % ('MK', self.mk)
+        print '%-12s: %s' % ('SRC', os.path.join(Bos.topdir, self._src))
+        if self.require: print '%-12s: %s' % ('DEPEND', ' '.join(self.require))
+        print '-' * 80
+
+        if self._info:
+            for k, v in self._info.items():
+                print '\n%s:' % k
+                for i in v:
+                    print '\t%s %s %10s %s' % (i[0], i[1], i[2], i[3])
+
+        print
+
     def _put_info(self, info):
 
-        self.info.update(info)
+        self._info.update(info)
 
     def _flush(self):
 
@@ -298,23 +296,23 @@ class BosPackage(object):
         """
 
         ## walk through package and sub-package definitions if any
-        for kn in self.files:
+        for kn in self._files:
             if kn == 'files':
-                pn = self.basename
+                pn = self._basename
             else:
-                pn = self.basename + kn[5:]
+                pn = self._basename + kn[5:]
 
                 Blog.debug('processing package: %s' % pn)
 
             ctx = BosInstallContext(pn, self)
             try:
-                for itm in self.files[kn].split('\n'):
+                for itm in self._files[kn].split('\n'):
                     if '' == itm.strip(): continue
 
                     ownership, pattern, optional = _parse_install_item(itm)
 
                     Blog.debug('processing pattern: %s' % pattern)
-                    flist = glob.glob(os.path.join(self.stagingdir, pattern[1:]))
+                    flist = glob.glob(os.path.join(self._get_stagingdir(), pattern[1:]))
                     if (not flist) and (not optional):
                         Blog.fatal('<%s> unable to find: %s' % (self.name,  pattern))
                     for ff in flist: _install_files(ff, ownership, ctx)
@@ -337,12 +335,12 @@ class BosPackage(object):
 
         ## post process: walk the stagingdir to make sure there's no files left
         try:
-            for r, d, f in os.walk(self.stagingdir):
+            for r, d, f in os.walk(self._get_stagingdir()):
                 if f: Blog.fatal('installed but unpackaged contents found: %s\n%s'
-                                 % (self.name, _list_dir(self.stagingdir)))
+                                 % (self.name, _list_dir(self._get_stagingdir())))
         except:
             Blog.error('%s unable to walk staging dir: %s'
-                       % (self.name, self.stagingdir))
+                       % (self.name, self._get_stagingdir()))
             self._uninstall()
             return -2
 
@@ -359,15 +357,15 @@ class BosPackage(object):
         """
         try:
             ## must acquire the global lock
-            lockdir = Bos.nativedirlock if self.native else Bos.targetdirlock
+            lockdir = Bos.nativedirlock if self._native else Bos.targetdirlock
 
             with BosLockFile(lockdir) as lock:
                 ## clean up output and index area based on cached package info
-                for pn in self.info:
-                    for lst in self.info[pn]:
+                for pn in self._info:
+                    for lst in self._info[pn]:
                         fn = lst[3]
                         Blog.debug('%s removing %s' % (self.name, fn[1:]))
-                        if self.native:
+                        if self._native:
                             os.unlink(os.path.join(Bos.nativedir, fn[1:]))
                             os.unlink(os.path.join(Bos.nativeindexdir, fn[1:]))
                         else:
@@ -375,13 +373,13 @@ class BosPackage(object):
                             os.unlink(os.path.join(Bos.targetindexdir, fn[1:]))
 
                 ## check output area to remove left-over empty paths
-                for kn in self.files:
-                    for itm in self.files[kn].split('\n'):
+                for kn in self._files:
+                    for itm in self._files[kn].split('\n'):
                         if not itm.strip(): continue
                         dn = os.path.dirname(itm)
                         Blog.debug('package %s removing item: %s' % (self.name, dn))
                         if dn and  '/' != dn:
-                            if self.native:
+                            if self._native:
                                 bos_rm_empty_path(dn, Bos.nativedir)
                                 bos_rm_empty_path(dn, Bos.nativeindexdir)
                             else:
@@ -391,7 +389,7 @@ class BosPackage(object):
         except: ## all uninstall errors are ignored
             Blog.debug('%s unable to uninstall.' % self.name)
 
-        self.info = {}
+        self._info = {}
         self._flush()
 
     def _purge(self):
@@ -402,7 +400,7 @@ class BosPackage(object):
         self._uninstall()
 
         for r,d,f in os.walk(
-            Bos.nativeindexdir if self.native else Bos.targetindexdir):
+            Bos.nativeindexdir if self._native else Bos.targetindexdir):
             for fn in f:
                 if (self.name == os.readlink(os.path.join(r, fn))):
                     os.unlink(os.path.join(r, fn))
@@ -413,33 +411,33 @@ class BosPackage(object):
         """
 
         ret = 0
-        if self.patch and not os.path.exists(self.patched):
-            for p in self.patch:
+        if self._patch and not os.path.exists(self._patched):
+            for p in self._patch:
                 Blog.debug("patching %s: %s" % (self.name, p))
                 ret,logname = bos_run(
                     ['patch', '-p1',
-                     '-d', self.src,
-                     '-i', os.path.join(os.path.dirname(self.mk), p)])
+                     '-d', os.path.join(Bos.topdir, self._src),
+                     '-i', os.path.join(Bos.topdir, os.path.dirname(self.mk), p)])
                 if 0 != ret:
                     Blog.fatal('%s unable to apply patch: %s' % (self.name, p))
 
-        if 0 == ret and self.patch:
-            Bos.touch(self.patched)
+        if 0 == ret and self._patch:
+            Bos.touch(self._patched)
 
     def _revert_patch(self):
         """
         revert package patches if available.
         """
-        if self.patch and os.path.exists(self.patched):
-            for p in reversed(self.patch):
+        if self._patch and os.path.exists(self._patched):
+            for p in reversed(self._patch):
                 Blog.debug("reverting %s: %s" % (self.name, p))
                 ret,logname = bos_run(
                     ['patch', '-Rp1',
-                     '-d', self.src,
+                     '-d', os.path.join(Bos.topdir, self._src),
                      '-i', os.path.join(os.path.dirname(self.mk), p)])
                 if 0 != ret:
                     Blog.fatal('%s unable to revert patch: %s' % (self.name, p))
-            os.unlink(self.patched)
+            os.unlink(self._patched)
 
     def _get_mk(self):
         Blog.debug("get mkpath for: %s" % self.name)
@@ -448,6 +446,7 @@ class BosPackage(object):
         if not mkpath: mkpath = self._do_get_mk(Bos.topdir)
 
         Blog.debug("mk for: %s as: %s" % (self.name, mkpath))
+        if mkpath: return(mkpath[len(Bos.topdir):])
         return mkpath
 
     def _do_get_mk(self, root):
@@ -461,8 +460,8 @@ class BosPackage(object):
                     Blog.debug('mk found as: %s at %s' % (fn, r))
                     if fn == '%s.mk' % self.name:
                         return os.path.join(r, fn)
-                    if True == self.native:
-                        if fn == '%s.mk' % self.basename:
+                    if True == self._native:
+                        if fn == '%s.mk' % self._basename:
                             mk = fn
                             path = r
 
@@ -470,8 +469,8 @@ class BosPackage(object):
 
     def _preprocess_mk(self):
         import re
-
-        meta = self.mk + '.meta'
+        mk_full_path = os.path.join(Bos.topdir, self.mk)
+        meta = mk_full_path + '.meta'
         real = os.path.join(Bos.mkdir, os.path.basename(self.mk))
 
         self.prepare_yes = False
@@ -487,28 +486,49 @@ class BosPackage(object):
 
             with open(meta, "w") as m:
                 m.write('[BOSMK]\n')
-                for line in open(self.mk):
+                for line in open(mk_full_path):
                     if line[:3] == '## ': m.write(line[3:])
                     else:
                         if re.match(r'^\s*$', line): continue
                         else : r.write(line)
 
                         if re.match(r'^\w+', line) :
-                            if re.match(r'\bprepare\b', line):
+                            if re.match(r'.*\bprepare\b', line):
                                 self.prepare_yes = True
-                            if re.match(r'\bconfig\b', line):
+                            if re.match(r'.*\bconfig\b', line):
                                 self.config_yes = True
-                            if re.match(r'\bcompile\b', line):
+                            if re.match(r'.*\bcompile\b', line):
                                 self.compile_yes = True
-                            if re.match(r'\binstall\b', line):
+                            if re.match(r'.*\binstall\b', line):
                                 self.install_yes = True
-                            if re.match(r'\bclean\b', line):
+                            if re.match(r'.*\bclean\b', line):
                                 self.clean_yes = True
 
         finally:
             r.close()
 
-        return meta,real
+        return meta
+
+
+    def _get_stagingdir(self):
+        return os.path.join(Bos.cachedir, self.name)
+
+
+    def _get_logdir(self):
+        return os.path.join(Bos.logdir, self._basename,
+                            'native' if self._native else 'target')
+
+    def _get_gitdir(self):
+        gitdir = None
+        if self._src:
+            from subprocess import Popen, PIPE
+            out, err = Popen('cd %s; git rev-parse --show-toplevel'
+                             % os.path.join(Bos.topdir, self._src), shell = True,
+                             stdout = PIPE, stderr = PIPE
+                             ).communicate()
+            if err: Blog.warn('%s: not a git repository.' % os.path.join(Bos.topdir, self._src))
+            else: gitdir = os.path.join(out.strip(), '.git')[len(Bos.topdir):]
+        return gitdir
 
 
 def _get_shelf_name(name):
@@ -529,7 +549,7 @@ def _install_files(src, ownership, context):
         mode, size = bos_fileinfo(src)
 
         ## actual install must acquire the global lock
-        lockdir = Bos.nativedirlock if context.pkg.native else Bos.targetdirlock
+        lockdir = Bos.nativedirlock if context.pkg._native else Bos.targetdirlock
         with BosLockFile(lockdir) as lock:
 
             path = os.path.join(context.destdir, os.path.dirname(rel_src))
@@ -539,7 +559,7 @@ def _install_files(src, ownership, context):
             try:
                 shutil.move(src, path + '/')
             except shutil.Error:
-                owner = _who_has(rel_src, context.pkg.native)
+                owner = _who_has(rel_src, context.pkg._native)
                 if owner == context.name:
                     os.unlink(path, os.path.basename(src))
                     shutil.move(src, path + '/')

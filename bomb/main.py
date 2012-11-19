@@ -27,14 +27,15 @@ class Bos(object):
 
     cachedir = builddir + '.cache/'
     statesdir = cachedir + 'states/'
-    shelvedir = cachedir + 'shelve/'
     mkdir = cachedir + 'mk/'
 
-    nativeindexdir = cachedir + 'index/native/'
-    targetindexdir = cachedir + 'index/target/'
-
-    nativedir = builddir + 'native/'
-    targetdir = builddir + 'target/'
+    outdir = builddir + 'out/'
+    nativedir = outdir + 'native/'
+    targetdir = outdir + 'target/'
+    metadir = outdir + 'meta/'
+    nativeindexdir = metadir + 'index/native/'
+    targetindexdir = metadir + 'index/target/'
+    shelvedir = metadir + 'shelve/'
 
     logdir = builddir + 'logs/'
     distrodir = topdir + 'distro/'
@@ -76,7 +77,7 @@ class Bos(object):
     def save_env(cls):
 
         import shelve
-        db = shelve.open(os.path.join(cls.shelvedir, 'bos-build-env'))
+        db = shelve.open(os.path.join(cls.cachedir, 'bos-build-env'))
         db['native'] = cls.native_env
         db['target'] = cls.target_env
         db.close()
@@ -86,7 +87,7 @@ class Bos(object):
 
         import shelve
 
-        db = shelve.open(os.path.join(cls.shelvedir, 'bos-build-env'))
+        db = shelve.open(os.path.join(cls.cachedir, 'bos-build-env'))
         env = db['native'] if native else db['target']
         #print 'got env: {0}'.format(env)
         os.environ.update(env)

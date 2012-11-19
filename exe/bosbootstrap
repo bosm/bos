@@ -70,7 +70,6 @@ def _pkg_list_gen():
     bdeps.write('T:=%s\n\n' % Bos.topdir)
     bdeps.write('.bootstrap: ')
 
-    tlen = len(Bos.topdir)
     with open(os.path.join(Bos.cachedir, 'deps.mk'), "w") as deps:
         deps.write('T:=%s\n' % Bos.topdir)
         deps.write('D:=%sstates/\n\n' % Bos.cachedir)
@@ -84,8 +83,8 @@ def _pkg_list_gen():
         pkgs = pkgs.union(pkgs2)
         for pn in pkgs:
             pkg = BosPackage.open(pn)
-            deps.write('$(D)%s.p: $(T)%s\n' % (pkg.name, pkg.mk[tlen:]))
-            bdeps.write(' \\\n$(T)%s' % pkg.mk[tlen:])
+            deps.write('$(D)%s.p: $(T)%s\n' % (pkg.name, pkg.mk))
+            bdeps.write(' \\\n$(T)%s' % pkg.mk)
 
 def _pkg_record(pkgs, name):
     if pkgs:

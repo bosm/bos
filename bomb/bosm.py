@@ -223,24 +223,7 @@ def _print_pkg_info(name):
     Blog.debug('print package info: %s' % name)
     try:
         pkg = BosPackage.open(name)
-
-        print '-' * 80
-        print '%-12s: %s' % ('NAME', pkg.name)
-        print '%-12s: %s' % ('DESCRIPTION', '\n\t'.join(pkg.description.split('\n')))
-        print '-' * 80
-        print '%-12s: %s' % ('MK', pkg.mk)
-        print '%-12s: %s' % ('SRC', pkg.src)
-        if pkg.require: print '%-12s: %s' % ('DEPEND', ' '.join(pkg.require))
-        print '-' * 80
-
-        if pkg.info:
-            for k, v in pkg.info.items():
-                print '\n%s:' % k
-                for i in v:
-                    print '\t%s %s %10s %s' % (i[0], i[1], i[2], i[3])
-
-        print
-
+        pkg.dump()
     except:
         Blog.fatal('invalid package name: %s' % name)
 
