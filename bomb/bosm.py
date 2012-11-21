@@ -58,6 +58,8 @@ def bosm(args):
     ## - all envorinments are in place and ready to consume build target
     if 'info' in args.target: _print_info()
 
+    if 'all' in args.target: _check_package_version()
+
     if 0 == ret:
         for target in args.target:
             if target[-5:] == '-info': _print_pkg_info(target[:-5])
@@ -175,6 +177,30 @@ def _fuzzy_target(target):
 
     #print 'build target: {0}'.format(target_real)
     return target_real
+
+
+def _check_package_version():
+
+    from bomb.package import BosPackage
+
+    names = _all_pkgs()
+    for name in names:
+        pkg = BosPackage.open(name)
+
+        dot_v = os.path.join(Bos.statesdir, name + '.v')
+        dot_d = os.path.join(Bos.statesdir, name + '.d')
+        if not os.path.exists(dot_v): Bos.touch(dot_v)
+
+        if True == pkg.is_version_diff():
+            if os.path.exists(dot_d):
+                Blog.info("%s: rebuild required" % name)
+                Bos.touch(dot_v)
+        else:
+            if not os.path.exists(dot_d):
+               Bos.touch(os.path.join(Bos.statesdir, name + '.p'))
+               Bos.touch(os.path.join(Bos.statesdir, name + '.f'))
+               Bos.touch(os.path.join(Bos.statesdir, name + '.b'))
+               Bos.touch(dot_d)
 
 
 def _all_pkgs():

@@ -110,9 +110,11 @@ class BosPackage(object):
         self._mtime = os.path.getmtime(mk_full_path)
         self._gitdir = self._get_gitdir()
 
-        ## info directory:
+        ## installed contents directory:
         ## {package-name: [[mode ownership size path]]}
-        self._info = {}
+        self._contents = {}
+        ## version info is available only after a successful install.
+        self._version = None
 
         ## put it on shelf
         db = shelve.open(_get_shelf_name(name))
@@ -134,6 +136,10 @@ class BosPackage(object):
 
         if not pkg: return BosPackage(name)
         return pkg
+
+    def is_version_diff(self):
+        return (False if self._get_version() == self._version else True)
+
 
     def prepare(self):
 
@@ -173,6 +179,8 @@ class BosPackage(object):
 
     def install(self):
 
+        ret = 0
+        logname = None
         self._uninstall()
         if self.install_yes:
             Blog.info("installing %s" % self.name)
@@ -184,9 +192,12 @@ class BosPackage(object):
                                    'install'], self._get_logdir() + '-install')
             if 0 == ret: ret = self._install()
             shutil.rmtree(self._get_stagingdir())
-            return (ret, logname)
 
-        return (0, None)
+        if 0 == ret:
+            ## record package version
+            self._version = self._get_version()
+            self._flush()
+        return (ret, logname)
 
     def clean(self):
 
@@ -208,7 +219,8 @@ class BosPackage(object):
             self._uninstall()
 
             try:
-                for fn in glob.glob('%s.*' % (Bos.statesdir + self.name)): os.unlink(fn)
+                for fn in glob.glob('%s.?' % (Bos.statesdir + self.name)): os.unlink(fn)
+                Bos.touch(Bos.statesdir + self.name + '.v')
             except OSError as e:
                 Blog.warn(e.strerror + ': ' + e.filename)
 
@@ -245,7 +257,8 @@ class BosPackage(object):
             self._purge()
 
             try:
-                for fn in glob.glob('%s.*' % (Bos.statesdir + self.name)): os.unlink(fn)
+                for fn in glob.glob('%s.?' % (Bos.statesdir + self.name)): os.unlink(fn)
+                Bos.touch(Bos.statesdir + self.name + '.v')
             except OSError as e:
                 Blog.warn(e.strerror + ': ' + e.filename)
 
@@ -266,8 +279,8 @@ class BosPackage(object):
         if self.require: print '%-12s: %s' % ('DEPEND', ' '.join(self.require))
         print '-' * 80
 
-        if self._info:
-            for k, v in self._info.items():
+        if self._contents:
+            for k, v in self._contents.items():
                 print '\n%s:' % k
                 for i in v:
                     print '\t%s %s %10s %s' % (i[0], i[1], i[2], i[3])
@@ -276,7 +289,7 @@ class BosPackage(object):
 
     def _put_info(self, info):
 
-        self._info.update(info)
+        self._contents.update(info)
 
     def _flush(self):
 
@@ -344,8 +357,6 @@ class BosPackage(object):
             self._uninstall()
             return -2
 
-        self._flush()
-
         return 0
 
     def _uninstall(self):
@@ -361,8 +372,8 @@ class BosPackage(object):
 
             with BosLockFile(lockdir) as lock:
                 ## clean up output and index area based on cached package info
-                for pn in self._info:
-                    for lst in self._info[pn]:
+                for pn in self._contents:
+                    for lst in self._contents[pn]:
                         fn = lst[3]
                         Blog.debug('%s removing %s' % (self.name, fn[1:]))
                         if self._native:
@@ -389,7 +400,8 @@ class BosPackage(object):
         except: ## all uninstall errors are ignored
             Blog.debug('%s unable to uninstall.' % self.name)
 
-        self._info = {}
+        self._contents = {}
+        self._version = None
         self._flush()
 
     def _purge(self):
@@ -529,6 +541,18 @@ class BosPackage(object):
             if err: Blog.warn('%s: not a git repository.' % os.path.join(Bos.topdir, self._src))
             else: gitdir = os.path.join(out.strip(), '.git')[len(Bos.topdir):]
         return gitdir
+
+    def _get_version(self):
+
+        version = 'unknown'
+        if self._gitdir:
+            from subprocess import Popen, PIPE
+            out,err = Popen('cd %s; git describe --all'
+                            % os.path.join(Bos.topdir, self._gitdir), shell = True,
+                            stdout = PIPE, stderr = PIPE).communicate()
+            if not err: version = out.strip()
+
+        return version
 
 
 def _get_shelf_name(name):

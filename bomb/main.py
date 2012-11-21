@@ -27,7 +27,6 @@ class Bos(object):
 
     cachedir = builddir + '.cache/'
     statesdir = cachedir + 'states/'
-    mkdir = cachedir + 'mk/'
 
     outdir = builddir + 'out/'
     nativedir = outdir + 'native/'
@@ -36,6 +35,7 @@ class Bos(object):
     nativeindexdir = metadir + 'index/native/'
     targetindexdir = metadir + 'index/target/'
     shelvedir = metadir + 'shelve/'
+    mkdir = metadir + 'mk/'
 
     logdir = builddir + 'logs/'
     distrodir = topdir + 'distro/'

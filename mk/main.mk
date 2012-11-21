@@ -52,6 +52,7 @@ bootstrap:
 	@$(MAKE) -f ${BOS_TOPDIR}/bos/mk/bootstrap.mk $@
 
 $(addsuffix .p,$(addprefix $(bos_statedir),$(bos_all_packages))): .rebuild
+$(addsuffix .p,$(addprefix $(bos_statedir),$(bos_all_packages))): %.p: %.v
 	@$(E)boslog -d "main.mk: preparing ${subst .p,, $(@F)} as dependency."
 	@$(E)bosprepare ${subst .p,, $(@F)}
 
@@ -64,5 +65,5 @@ $(addsuffix .b,$(addprefix $(bos_statedir),$(bos_all_packages))): %.b: %.f
 	@$(E)boscompile ${subst .b,, $(@F)}
 
 $(addsuffix .d,$(addprefix $(bos_statedir),$(bos_all_packages))): %.d: %.b
-	@$(E)boslog -d "main.mK: installing ${subst .d,, $(@F)} as dependency."
+	@$(E)boslog -d "main.mk: installing ${subst .d,, $(@F)} as dependency."
 	@$(E)bosinstall ${subst .d,, $(@F)}
