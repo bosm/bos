@@ -274,7 +274,7 @@ class BosPackage(object):
         print '%-12s: %s' % ('NAME', self.name)
         print '%-12s: %s' % ('DESCRIPTION', '\n\t'.join(self._description.split('\n')))
         print '-' * 80
-        print '%-12s: %s' % ('MK', self.mk)
+        print '%-12s: %s' % ('MK', os.path.join(Bos.topdir, self.mk))
         print '%-12s: %s' % ('SRC', os.path.join(Bos.topdir, self._src))
         if self.require: print '%-12s: %s' % ('DEPEND', ' '.join(self.require))
         print '-' * 80
@@ -443,10 +443,11 @@ class BosPackage(object):
         if self._patch and os.path.exists(self._patched):
             for p in reversed(self._patch):
                 Blog.debug("reverting %s: %s" % (self.name, p))
+
                 ret,logname = bos_run(
                     ['patch', '-Rp1',
                      '-d', os.path.join(Bos.topdir, self._src),
-                     '-i', os.path.join(os.path.dirname(self.mk), p)])
+                     '-i', os.path.join(Bos.topdir, os.path.dirname(self.mk), p)])
                 if 0 != ret:
                     Blog.fatal('%s unable to revert patch: %s' % (self.name, p))
             os.unlink(self._patched)
